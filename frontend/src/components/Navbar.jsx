@@ -7,10 +7,10 @@ const Navbar = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const navigate = useNavigate();
 
-  // useEffect(() => {
-  //   const token = localStorage.getItem('token');
-  //   setIsLoggedIn(!!token);
-  // }, []);
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    setIsLoggedIn(!!token);
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -89,7 +89,7 @@ const Navbar = () => {
               </>
             ) : (
               <>
-                {/* <Link to="/login" className="block py-2 text-gray-600 hover:text-red-600">Login</Link> */}
+                <Link to="/login" className="block py-2 text-gray-600 hover:text-red-600">Login</Link>
                 <Link 
                   to="/register" 
                   className="block w-full bg-red-600 text-white px-4 py-2 rounded-lg mt-2 text-center"
