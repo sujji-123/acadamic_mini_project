@@ -3,6 +3,8 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
+import verificationRoutes from './routes/verification.js';
+import donorRoutes from './routes/donors.js'; // Add this line
 
 dotenv.config();
 
@@ -19,6 +21,8 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/verification', verificationRoutes);
+app.use('/api/donors', donorRoutes); // Add this line
 
 // Basic route
 app.get('/', (req, res) => {
