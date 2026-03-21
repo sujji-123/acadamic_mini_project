@@ -72,3 +72,13 @@ public/uploads/
 # Vite
 vite.config.js.*
 *.tsbuildinfo
+
+# WhatsApp Bot Session Data
+backend/.wwebjs_auth/
+
+# Make sure env variables and modules are ignored too
+node_modules/
+.env
+
+# Ignore Large ML Models (to prevent GitHub 100MB block)
+ML/app/models/*.pkl

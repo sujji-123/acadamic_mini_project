@@ -2,20 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
-  Droplet, 
-  Heart, 
-  MapPin, 
-  Clock, 
-  User,
-  LogOut,
-  Bell,
-  Calendar
+  Droplet, Heart, MapPin, Clock, User, LogOut, Bell, Calendar, Loader
 } from 'lucide-react';
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [requestLoading, setRequestLoading] = useState(false); // NEW STATE
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -47,6 +41,31 @@ const Dashboard = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/');
+  };
+
+  // NEW FUNCTION: Handle Emergency Request Click
+  const handleEmergencyRequest = async () => {
+    try {
+      // Prompt patient to confirm the blood group they need
+      const defaultBg = user.patientDetails?.bloodGroup || '';
+      const bloodGroup = window.prompt("Confirm the Blood Group required (e.g., O+, A-, B+):", defaultBg);
+      
+      if (!bloodGroup) return; // User cancelled
+
+      setRequestLoading(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.post('http://localhost:5000/api/requests/emergency', 
+        { bloodGroup: bloodGroup.toUpperCase() },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      alert(response.data.message);
+    } catch (error) {
+      alert('Failed to send request: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setRequestLoading(false);
+    }
   };
 
   if (loading) {
@@ -137,9 +156,8 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Main Content - Different based on user type */}
+        {/* Main Content */}
         <div className="grid md:grid-cols-3 gap-6">
-          {/* Left Column - Profile Details */}
           <div className="md:col-span-1">
             <div className="bg-white rounded-xl shadow-md p-6">
               <h2 className="text-lg font-semibold mb-4">Profile Details</h2>
@@ -215,7 +233,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Right Column - Actions & Requests */}
           <div className="md:col-span-2">
             <div className="bg-white rounded-xl shadow-md p-6 mb-6">
               <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
@@ -240,9 +257,21 @@ const Dashboard = () => {
                       <Droplet className="h-6 w-6 mx-auto mb-2" />
                       <span className="block font-medium">Find Donors Now</span>
                     </button>
-                    <button className="p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition">
-                      <Bell className="h-6 w-6 mx-auto mb-2" />
-                      <span className="block font-medium">Emergency Request</span>
+                    
+                    {/* MODIFIED EMERGENCY BUTTON */}
+                    <button 
+                      onClick={handleEmergencyRequest}
+                      disabled={requestLoading}
+                      className="p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition flex flex-col items-center"
+                    >
+                      {requestLoading ? (
+                        <Loader className="h-6 w-6 mx-auto mb-2 animate-spin text-gray-600" />
+                      ) : (
+                        <Bell className="h-6 w-6 mx-auto mb-2 text-gray-800" />
+                      )}
+                      <span className="block font-medium text-gray-800">
+                        {requestLoading ? 'Alerting Donors...' : 'Emergency Request'}
+                      </span>
                     </button>
                   </>
                 )}
@@ -262,7 +291,6 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* Recent Activity */}
             <div className="bg-white rounded-xl shadow-md p-6">
               <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
               <p className="text-gray-500 text-center py-8">No recent activity to show</p>

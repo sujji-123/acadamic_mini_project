@@ -5,6 +5,7 @@ import LandingPage from './components/LandingPage';
 import Register from './components/Register';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import AcceptRequest from './components/AcceptRequest'; // NEW LINE
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/accept-request/:requestId/:donorId" element={<AcceptRequest />} /> {/* NEW LINE */}
         </Routes>
       </div>
     </Router>

@@ -305,8 +305,8 @@ async def find_best_donors(request: BloodRequest):
     """Find and rank best donors for blood request using Haversine formula and eligibility scoring"""
     logger.info(f"Finding donors for {request.bloodGroup} at ({request.latitude}, {request.longitude})")
     
-    if not db:
-        raise HTTPException(status_code=500, detail="Database connection failed")
+    if db is None:
+        return {"success": False, "message": "Database connection failed"}
     
     try:
         # Get eligible donors from MongoDB
