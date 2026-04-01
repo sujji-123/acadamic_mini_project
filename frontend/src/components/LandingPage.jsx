@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Droplet, 
   MapPin, 
@@ -23,11 +24,80 @@ import {
 } from 'lucide-react';
 
 const LandingPage = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = React.useState('blood'); // 'blood' or 'organs'
+  const [location, setLocation] = React.useState('');
+  const [bloodGroup, setBloodGroup] = React.useState('');
+  const [organType, setOrganType] = React.useState('');
+  const [searchLoading, setSearchLoading] = React.useState(false);
+
+  const handleBloodSearch = async () => {
+    if (!location) {
+      alert('Please enter your location');
+      return;
+    }
+    if (!bloodGroup) {
+      alert('Please select blood group');
+      return;
+    }
+    
+    setSearchLoading(true);
+    try {
+      localStorage.setItem('bloodSearchParams', JSON.stringify({
+        location,
+        bloodGroup,
+        type: 'blood'
+      }));
+      navigate('/find-donors');
+    } catch (error) {
+      console.error('Search error:', error);
+      alert('Unable to search. Please try again.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleOrganSearch = async () => {
+    if (!location) {
+      alert('Please enter your location');
+      return;
+    }
+    if (!organType) {
+      alert('Please select organ type');
+      return;
+    }
+    
+    setSearchLoading(true);
+    try {
+      localStorage.setItem('organSearchParams', JSON.stringify({
+        location,
+        organType,
+        type: 'organ'
+      }));
+      navigate('/find-organs');
+    } catch (error) {
+      console.error('Search error:', error);
+      alert('Unable to search. Please try again.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleRequestClick = () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login?redirect=/dashboard');
+    } else {
+      navigate('/dashboard');
+    }
+  };
+
+  const handleRegisterClick = () => {
+    navigate('/register');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Hero Section with Emergency Banner */}
       <section className="pt-20 bg-gradient-to-br from-red-600 to-red-700 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <div className="grid md:grid-cols-2 gap-12 items-center">
@@ -40,9 +110,9 @@ const LandingPage = () => {
                 Save lives with our smart matching system for blood transfusion and organ transplantation.
               </p>
               
-              {/* Emergency CTA with Tabs */}
+             
               <div className="bg-white p-6 rounded-xl shadow-xl mb-8">
-                {/* Tab Buttons */}
+                
                 <div className="flex gap-2 mb-6 border-b border-gray-200">
                   <button
                     onClick={() => setActiveTab('blood')}
@@ -68,7 +138,7 @@ const LandingPage = () => {
                   </button>
                 </div>
 
-                {/* Blood Request Form */}
+                
                 {activeTab === 'blood' && (
                   <div>
                     <div className="flex items-center space-x-2 mb-4">
@@ -79,10 +149,16 @@ const LandingPage = () => {
                       <input 
                         type="text" 
                         placeholder="Enter your location" 
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
                         className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-gray-800"
                       />
-                      <select className="px-4 py-3 border border-gray-300 rounded-lg text-gray-800">
-                        <option>Select Blood Group</option>
+                      <select 
+                        value={bloodGroup}
+                        onChange={(e) => setBloodGroup(e.target.value)}
+                        className="px-4 py-3 border border-gray-300 rounded-lg text-gray-800"
+                      >
+                        <option value="">Select Blood Group</option>
                         <option>A+</option>
                         <option>A-</option>
                         <option>B+</option>
@@ -92,14 +168,18 @@ const LandingPage = () => {
                         <option>AB+</option>
                         <option>AB-</option>
                       </select>
-                      <button className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 font-semibold">
-                        Find Donors
+                      <button 
+                        onClick={handleBloodSearch}
+                        disabled={searchLoading}
+                        className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 font-semibold disabled:bg-red-400"
+                      >
+                        {searchLoading ? 'Searching...' : 'Find Donors'}
                       </button>
                     </div>
                   </div>
                 )}
 
-                {/* Organ Request Form */}
+                
                 {activeTab === 'organs' && (
                   <div>
                     <div className="flex items-center space-x-2 mb-4">
@@ -110,10 +190,16 @@ const LandingPage = () => {
                       <input 
                         type="text" 
                         placeholder="Enter your location" 
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
                         className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-gray-800"
                       />
-                      <select className="px-4 py-3 border border-gray-300 rounded-lg text-gray-800">
-                        <option>Select Organ Needed</option>
+                      <select 
+                        value={organType}
+                        onChange={(e) => setOrganType(e.target.value)}
+                        className="px-4 py-3 border border-gray-300 rounded-lg text-gray-800"
+                      >
+                        <option value="">Select Organ Needed</option>
                         <option>Kidney</option>
                         <option>Liver</option>
                         <option>Heart</option>
@@ -123,8 +209,12 @@ const LandingPage = () => {
                         <option>Bone Marrow</option>
                         <option>Skin</option>
                       </select>
-                      <button className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 font-semibold">
-                        Find Organ Donors
+                      <button 
+                        onClick={handleOrganSearch}
+                        disabled={searchLoading}
+                        className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 font-semibold disabled:bg-red-400"
+                      >
+                        {searchLoading ? 'Searching...' : 'Find Organ Donors'}
                       </button>
                     </div>
                     <p className="text-xs text-gray-500 mt-3">
@@ -134,7 +224,7 @@ const LandingPage = () => {
                 )}
               </div>
               
-              {/* Stats */}
+              
               <div className="flex space-x-8">
                 <div>
                   <div className="text-3xl font-bold">500+</div>
@@ -155,7 +245,7 @@ const LandingPage = () => {
               </div>
             </div>
             
-            {/* Hero Image */}
+            
             <div className="hidden md:block">
               <img 
                 src="https://images.unsplash.com/photo-1615461066841-6116e61058f4?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80" 
@@ -167,13 +257,13 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* How It Works Section - Updated for both */}
+      
       <section id="how-it-works" className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-bold text-center mb-12">How Our Platform Works</h2>
           
           <div className="grid md:grid-cols-3 gap-8">
-            {/* Step 1 */}
+            
             <div className="text-center p-6">
               <div className="bg-red-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Users className="h-10 w-10 text-red-600" />
@@ -184,7 +274,7 @@ const LandingPage = () => {
               </p>
             </div>
 
-            {/* Step 2 */}
+            
             <div className="text-center p-6">
               <div className="bg-red-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <MapPin className="h-10 w-10 text-red-600" />
@@ -195,7 +285,7 @@ const LandingPage = () => {
               </p>
             </div>
 
-            {/* Step 3 */}
+        
             <div className="text-center p-6">
               <div className="bg-red-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Heart className="h-10 w-10 text-red-600" />
@@ -207,7 +297,7 @@ const LandingPage = () => {
             </div>
           </div>
 
-          {/* Platform Flow Diagram */}
+         
           <div className="mt-16 bg-gray-50 p-8 rounded-xl">
             <h3 className="text-xl font-semibold mb-6 text-center">Simple Process</h3>
             <div className="flex flex-col md:flex-row justify-between items-center">
@@ -236,13 +326,13 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* Donation Guidelines Section - Updated with Organ Donation */}
+     
       <section id="guidelines" className="py-16 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-bold text-center mb-12">Donation Guidelines</h2>
           
           <div className="grid md:grid-cols-3 gap-8">
-            {/* Blood Donation */}
+           
             <div className="bg-white p-6 rounded-xl shadow-md">
               <div className="flex items-center space-x-3 mb-4">
                 <Droplet className="h-8 w-8 text-red-600" />
@@ -271,7 +361,7 @@ const LandingPage = () => {
               </button>
             </div>
 
-            {/* Organ Donation */}
+            
             <div className="bg-white p-6 rounded-xl shadow-md">
               <div className="flex items-center space-x-3 mb-4">
                 <Heart className="h-8 w-8 text-red-600" />
@@ -300,7 +390,7 @@ const LandingPage = () => {
               </button>
             </div>
 
-            {/* Organs We Match */}
+            
             <div className="bg-white p-6 rounded-xl shadow-md">
               <div className="flex items-center space-x-3 mb-4">
                 <Stethoscope className="h-8 w-8 text-red-600" />
@@ -343,7 +433,7 @@ const LandingPage = () => {
             </div>
           </div>
 
-          {/* Quick Tips */}
+          
           <div className="mt-8 bg-blue-50 border border-blue-200 p-6 rounded-xl">
             <h3 className="text-lg font-semibold text-blue-800 mb-3">💡 Important Notes</h3>
             <div className="grid md:grid-cols-2 gap-4 text-sm">
@@ -368,13 +458,13 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* Two Dashboards Preview - Updated */}
+      
       <section className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-bold text-center mb-12">Two Simple Dashboards</h2>
           
           <div className="grid md:grid-cols-2 gap-8">
-            {/* Patient/Seeker Dashboard */}
+            
             <div className="border rounded-xl overflow-hidden shadow-lg">
               <div className="bg-red-600 text-white p-4">
                 <h3 className="text-xl font-semibold flex items-center">
@@ -399,13 +489,16 @@ const LandingPage = () => {
                     <span className="text-green-600 mr-2">✓</span> Emergency SOS button for both
                   </li>
                 </ul>
-                <button className="mt-4 w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700">
+                <button 
+                  onClick={handleRequestClick}
+                  className="mt-4 w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition"
+                >
                   Request Blood or Organ →
                 </button>
               </div>
             </div>
 
-            {/* Donor Dashboard */}
+            
             <div className="border rounded-xl overflow-hidden shadow-lg">
               <div className="bg-blue-600 text-white p-4">
                 <h3 className="text-xl font-semibold flex items-center">
@@ -430,7 +523,10 @@ const LandingPage = () => {
                     <span className="text-green-600 mr-2">✓</span> Next eligible date reminders
                   </li>
                 </ul>
-                <button className="mt-4 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
+                <button 
+                  onClick={handleRegisterClick}
+                  className="mt-4 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
+                >
                   Register as Donor →
                 </button>
               </div>
@@ -439,7 +535,7 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* Emergency Contact Footer */}
+     
       <footer className="bg-gray-900 text-white py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-4 gap-8">

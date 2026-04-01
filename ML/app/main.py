@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 import math
 import logging
 from bson import ObjectId
+import re
+import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -83,14 +85,20 @@ class UserVerificationFeatures(BaseModel):
     registration_hour: int
     profile_completeness: float = Field(..., ge=0, le=1)
     location_accuracy: float = Field(..., ge=0, le=1)
-    social_links: int
-    activity_frequency: float = Field(..., ge=0, le=1)
+    social_links: int = Field(default=0)
+    activity_frequency: float = Field(default=0.5, ge=0, le=1)
 
 class FakeUserResponse(BaseModel):
     isFake: bool
     confidenceScore: float
     reason: str
     flags: List[str]
+
+class LiveLocationUpdate(BaseModel):
+    userId: str
+    latitude: float
+    longitude: float
+    timestamp: Optional[str] = None
 
 # ============================================
 # Load ML Models
@@ -267,6 +275,67 @@ def predict_availability_ml(donor: dict) -> dict:
         logger.error(f"ML prediction error: {e}")
         return {"available": True, "probability": 0.7, "confidence": "low"}
 
+def calculate_email_domain_score(email: str) -> float:
+    """Calculate email domain trust score"""
+    suspicious_domains = ['tempmail.com', '10minutemail.com', 'guerrillamail.com', 'mailinator.com', 'yopmail.com']
+    domain = email.split('@')[-1].lower()
+    
+    if domain in suspicious_domains:
+        return 0.1
+    elif domain.endswith('.edu'):
+        return 1.0
+    elif domain.endswith('.gov'):
+        return 1.0
+    elif domain in ['gmail.com', 'yahoo.com', 'outlook.com']:
+        return 0.8
+    else:
+        return 0.5
+
+def validate_phone(phone: str) -> int:
+    """Validate phone number format"""
+    phone_pattern = re.compile(r'^[6-9]\d{9}$')
+    return 1 if phone_pattern.match(phone) else 0
+
+def calculate_profile_completeness(user_data: dict) -> float:
+    """Calculate profile completeness score"""
+    required_fields = ['name', 'email', 'phone', 'userType']
+    filled = sum(1 for field in required_fields if user_data.get(field))
+    
+    if user_data.get('userType') in ['individual_donor', 'paid_donor']:
+        donor_fields = ['donorDetails.age', 'donorDetails.weight', 'donorDetails.bloodGroup']
+        for field in donor_fields:
+            parts = field.split('.')
+            val = user_data
+            for part in parts:
+                val = val.get(part, {}) if isinstance(val, dict) else None
+            if val:
+                filled += 1
+        total = len(required_fields) + len(donor_fields)
+    elif user_data.get('userType') == 'blood_bank':
+        bank_fields = ['bloodBankDetails.registrationNumber', 'bloodBankDetails.establishedYear']
+        for field in bank_fields:
+            parts = field.split('.')
+            val = user_data
+            for part in parts:
+                val = val.get(part, {}) if isinstance(val, dict) else None
+            if val:
+                filled += 1
+        total = len(required_fields) + len(bank_fields)
+    elif user_data.get('userType') == 'patient':
+        patient_fields = ['patientDetails.bloodGroup']
+        for field in patient_fields:
+            parts = field.split('.')
+            val = user_data
+            for part in parts:
+                val = val.get(part, {}) if isinstance(val, dict) else None
+            if val:
+                filled += 1
+        total = len(required_fields) + len(patient_fields)
+    else:
+        total = len(required_fields)
+    
+    return filled / total if total > 0 else 0
+
 # ============================================
 # API Endpoints
 # ============================================
@@ -313,7 +382,8 @@ async def find_best_donors(request: BloodRequest):
         donors = list(db.users.find({
             "userType": {"$in": ["individual_donor", "paid_donor"]},
             "donorDetails.bloodGroup": request.bloodGroup,
-            "donorDetails.isAvailable": True
+            "donorDetails.isAvailable": True,
+            "isSpam": {"$ne": True}  # Exclude spam users
         }).limit(100))
         
         logger.info(f"Found {len(donors)} potential donors")
@@ -452,91 +522,142 @@ async def predict_availability(features: DonorFeatures):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================
-# Endpoint 3: Detect Fake Users
+# Endpoint 3: Detect Fake Users (Enhanced)
 # ============================================
 
 @app.post("/detect-fake-user", response_model=FakeUserResponse)
 async def detect_fake_user(features: UserVerificationFeatures):
-    """Detect if a user registration is fake or spam"""
+    """Detect if a user registration is fake or spam with enhanced detection"""
     try:
-        if not fake_detector or not fake_scaler:
-            # Fallback rule-based detection
-            flags = []
-            is_fake = False
-            
-            # Rule-based checks
-            if features.name_length < 3:
-                flags.append("Name too short")
-                is_fake = True
-            
-            if features.age < 15 or features.age > 100:
-                flags.append("Invalid age")
-                is_fake = True
-            
-            if features.registration_hour < 6 or features.registration_hour > 22:
-                flags.append("Suspicious registration time")
-            
-            if features.email_domain_score < 0.3:
-                flags.append("Suspicious email domain")
-                is_fake = True
-            
-            if features.profile_completeness < 0.2:
-                flags.append("Incomplete profile")
-            
-            confidence = 70 if is_fake else 85
-            
-            return {
-                "isFake": is_fake,
-                "confidenceScore": confidence,
-                "reason": "Suspicious patterns detected" if is_fake else "User appears genuine",
-                "flags": flags[:3]  # Return top 3 flags
-            }
-        
-        # ML-based detection
-        X = np.array([[
-            features.email_domain_score,
-            features.phone_valid,
-            features.age,
-            features.name_length,
-            features.registration_hour,
-            features.profile_completeness,
-            features.location_accuracy,
-            features.social_links,
-            features.activity_frequency
-        ]])
-        
-        X_scaled = fake_scaler.transform(X)
-        prediction = fake_detector.predict(X_scaled)[0]
-        score = fake_detector.score_samples(X_scaled)[0]
-        
-        # Normalize score to 0-100 (higher = more genuine)
-        normalized_score = min(100, max(0, (score + 10) / 20 * 100))
-        
-        is_fake = prediction == -1
-        
-        # Get feature contributions (simple explanation)
         flags = []
-        if features.email_domain_score < 0.4:
-            flags.append("Suspicious email domain")
+        is_fake = False
+        confidence = 85
+        reason = "User appears genuine"
+        
+        # Enhanced rule-based detection
+        # 1. Name validation
+        if features.name_length < 3:
+            flags.append("Name too short (min 3 characters)")
+            is_fake = True
+        elif features.name_length > 50:
+            flags.append("Name too long (max 50 characters)")
+            is_fake = True
+        
+        # 2. Age validation
+        if features.age < 18:
+            flags.append(f"Age {features.age} - below minimum (18 required)")
+            is_fake = True
+        elif features.age > 100:
+            flags.append("Invalid age")
+            is_fake = True
+        
+        # 3. Registration time analysis (suspicious hours: 12 AM - 5 AM)
+        if features.registration_hour < 5 or features.registration_hour > 23:
+            flags.append("Unusual registration time (off-peak hours)")
+            # Don't mark as fake, just flag for review
+        
+        # 4. Email domain analysis
+        if features.email_domain_score < 0.3:
+            flags.append("Suspicious email domain (temporary email detected)")
+            is_fake = True
+            confidence -= 20
+        elif features.email_domain_score < 0.6:
+            flags.append("Uncommon email domain")
+        
+        # 5. Phone validation
         if features.phone_valid == 0:
-            flags.append("Invalid phone number")
-        if features.name_length < 4:
-            flags.append("Name too short")
+            flags.append("Invalid phone number format")
+            is_fake = True
+            confidence -= 25
+        
+        # 6. Profile completeness
         if features.profile_completeness < 0.3:
-            flags.append("Incomplete profile")
-        if features.registration_hour < 6 or features.registration_hour > 22:
-            flags.append("Unusual registration time")
+            flags.append("Profile incomplete (below 30%)")
+            is_fake = True
+        elif features.profile_completeness < 0.5:
+            flags.append("Profile partially complete")
+        
+        # 7. Location accuracy
+        if features.location_accuracy < 0.3:
+            flags.append("Suspicious location data")
+            is_fake = True
+        
+        # 8. Activity frequency check
+        if features.activity_frequency < 0.1:
+            flags.append("Unusual activity pattern")
+        
+        # 9. Social links check
+        if features.social_links == 0 and features.profile_completeness > 0.7:
+            flags.append("No social links for high completeness profile")
+        
+        # Try ML-based detection if models are available
+        if fake_detector and fake_scaler:
+            try:
+                X = np.array([[
+                    features.email_domain_score,
+                    features.phone_valid,
+                    features.age,
+                    features.name_length,
+                    features.registration_hour,
+                    features.profile_completeness,
+                    features.location_accuracy,
+                    features.social_links,
+                    features.activity_frequency
+                ]])
+                
+                X_scaled = fake_scaler.transform(X)
+                prediction = fake_detector.predict(X_scaled)[0]
+                score = fake_detector.score_samples(X_scaled)[0]
+                
+                # Normalize score to 0-100 (higher = more genuine)
+                normalized_score = min(100, max(0, (score + 10) / 20 * 100))
+                
+                ml_fake = prediction == -1
+                
+                # Combine rule-based and ML results
+                if ml_fake:
+                    is_fake = True
+                    confidence = round(100 - normalized_score, 2)
+                    reason = "ML model detected suspicious patterns"
+                else:
+                    # Only override if confidence is higher
+                    if confidence > normalized_score:
+                        confidence = round(normalized_score, 2)
+                        reason = "ML model confirms genuine user"
+            except Exception as ml_error:
+                logger.error(f"ML prediction error: {ml_error}")
+                # Continue with rule-based result
+        
+        # Calculate final confidence based on number of flags
+        if len(flags) >= 3:
+            confidence = min(confidence, 40)
+            if not is_fake:
+                is_fake = True
+                reason = "Multiple suspicious patterns detected"
+        elif len(flags) == 2:
+            confidence = min(confidence, 60)
+        elif len(flags) == 1:
+            confidence = min(confidence, 75)
+        
+        # Ensure confidence is within 0-100
+        confidence = max(0, min(100, confidence))
         
         return {
-            "isFake": bool(is_fake),
-            "confidenceScore": round(100 - normalized_score if is_fake else normalized_score, 2),
-            "reason": "ML model detected suspicious patterns" if is_fake else "User appears genuine",
-            "flags": flags[:3]
+            "isFake": is_fake,
+            "confidenceScore": confidence,
+            "reason": reason if not flags else f"{reason} - {', '.join(flags[:3])}",
+            "flags": flags[:5]  # Return top 5 flags
         }
         
     except Exception as e:
         logger.error(f"Fake detection error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return safe fallback with basic checks
+        return {
+            "isFake": False,
+            "confidenceScore": 50,
+            "reason": "Verification system temporarily using basic checks",
+            "flags": ["System in fallback mode"]
+        }
 
 # ============================================
 # Endpoint 4: Blood Demand Forecast
@@ -651,7 +772,8 @@ async def rank_donors_ml(request: BloodRequest):
         donors = list(db.users.find({
             "userType": {"$in": ["individual_donor", "paid_donor"]},
             "donorDetails.bloodGroup": request.bloodGroup,
-            "donorDetails.isAvailable": True
+            "donorDetails.isAvailable": True,
+            "isSpam": {"$ne": True}
         }).limit(50))
         
         if not donors:
@@ -719,9 +841,9 @@ async def rank_donors_ml(request: BloodRequest):
         # Fallback to regular ranking
         return await find_best_donors(request)
 
-# ============================================
-# Endpoint 6: Batch Eligibility Check
-# ============================================
+
+#  Batch Eligibility Check
+
 
 @app.post("/batch-eligibility")
 async def batch_eligibility(donor_ids: List[str]):
@@ -796,6 +918,183 @@ async def get_model_info():
         "models": model_info,
         "timestamp": datetime.now().isoformat()
     }
+
+# ============================================
+# Endpoint 8: Enhanced Fake User Detection with Complete Data
+# ============================================
+
+@app.post("/verify-user-registration")
+async def verify_user_registration(user_data: dict):
+    """Complete user verification endpoint that accepts full user data"""
+    try:
+        # Extract features from user data
+        email = user_data.get('email', '')
+        phone = user_data.get('phone', '')
+        name = user_data.get('name', '')
+        age = user_data.get('donorDetails', {}).get('age', user_data.get('patientDetails', {}).get('age', 25))
+        
+        # Calculate features
+        email_score = calculate_email_domain_score(email)
+        phone_valid = validate_phone(phone)
+        name_length = len(name)
+        registration_hour = datetime.now().hour
+        profile_completeness = calculate_profile_completeness(user_data)
+        location_accuracy = 0.7  # Default, can be enhanced with actual location validation
+        
+        # Create features object
+        features = UserVerificationFeatures(
+            email_domain_score=email_score,
+            phone_valid=phone_valid,
+            age=age,
+            name_length=name_length,
+            registration_hour=registration_hour,
+            profile_completeness=profile_completeness,
+            location_accuracy=location_accuracy,
+            social_links=1 if user_data.get('socialLinks') else 0,
+            activity_frequency=0.5
+        )
+        
+        # Call the detection endpoint
+        result = await detect_fake_user(features)
+        
+        return {
+            "success": True,
+            "verification": result.dict(),
+            "features_analyzed": {
+                "email_score": email_score,
+                "phone_valid": phone_valid,
+                "profile_completeness": profile_completeness
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"User verification error: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# ============================================
+# Endpoint 9: Live Location Updates
+# ============================================
+
+@app.post("/update-location")
+async def update_live_location(location: LiveLocationUpdate):
+    """Update and store live location for user tracking"""
+    try:
+        if not db:
+            return {"success": False, "message": "Database connection failed"}
+        
+        # Update user's current location
+        db.users.update_one(
+            {"_id": ObjectId(location.userId)},
+            {
+                "$set": {
+                    "currentLocation": {
+                        "lat": location.latitude,
+                        "lng": location.longitude,
+                        "timestamp": location.timestamp or datetime.now().isoformat()
+                    }
+                }
+            }
+        )
+        
+        # Also store in location history
+        db.location_history.insert_one({
+            "userId": location.userId,
+            "lat": location.latitude,
+            "lng": location.longitude,
+            "timestamp": datetime.now()
+        })
+        
+        return {"success": True, "message": "Location updated"}
+        
+    except Exception as e:
+        logger.error(f"Location update error: {e}")
+        return {"success": False, "error": str(e)}
+
+# ============================================
+# Endpoint 10: Get Live Location for Tracking
+# ============================================
+
+@app.get("/get-location/{user_id}")
+async def get_user_location(user_id: str):
+    """Get current location of a user for tracking"""
+    try:
+        if not db:
+            return {"success": False, "message": "Database connection failed"}
+        
+        user = db.users.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            return {"success": False, "message": "User not found"}
+        
+        current_location = user.get('currentLocation', {})
+        if not current_location:
+            return {"success": False, "message": "Location not available"}
+        
+        return {
+            "success": True,
+            "location": current_location,
+            "userId": user_id,
+            "name": user.get('name')
+        }
+        
+    except Exception as e:
+        logger.error(f"Get location error: {e}")
+        return {"success": False, "error": str(e)}
+
+# ============================================
+# Endpoint 11: Get Active Tracking Connections
+# ============================================
+
+@app.get("/active-trackings/{user_id}")
+async def get_active_trackings(user_id: str):
+    """Get all active tracking connections for a user"""
+    try:
+        if not db:
+            return {"success": False, "message": "Database connection failed"}
+        
+        # Find accepted requests where user is either patient or donor
+        accepted_requests = list(db.requests.find({
+            "$or": [
+                {"patientId": user_id, "status": "accepted"},
+                {"acceptedDonorId": user_id, "status": "accepted"}
+            ]
+        }))
+        
+        trackings = []
+        for req in accepted_requests:
+            if req.get('patientId') == user_id:
+                # User is patient, track donor
+                donor = db.users.find_one({"_id": ObjectId(req.get('acceptedDonorId'))})
+                if donor:
+                    trackings.append({
+                        "type": "donor",
+                        "userId": str(donor['_id']),
+                        "name": donor.get('name'),
+                        "location": donor.get('currentLocation', {}),
+                        "requestId": str(req['_id'])
+                    })
+            else:
+                # User is donor, track patient
+                patient = db.users.find_one({"_id": ObjectId(req.get('patientId'))})
+                if patient:
+                    trackings.append({
+                        "type": "patient",
+                        "userId": str(patient['_id']),
+                        "name": patient.get('name'),
+                        "location": patient.get('currentLocation', {}),
+                        "requestId": str(req['_id'])
+                    })
+        
+        return {
+            "success": True,
+            "trackings": trackings
+        }
+        
+    except Exception as e:
+        logger.error(f"Get trackings error: {e}")
+        return {"success": False, "error": str(e)}
 
 # ============================================
 # Run with: uvicorn app.main:app --reload --port 8000

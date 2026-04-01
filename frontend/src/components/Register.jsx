@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
-import { Droplet, User, Mail, Phone, MapPin, Lock, Heart, DollarSign } from 'lucide-react';
+import { Droplet, User, Mail, Phone, MapPin, Lock, Heart, DollarSign, AlertCircle } from 'lucide-react';
 
 const Register = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [userType, setUserType] = useState('');
   const [formData, setFormData] = useState({
-    // Common fields
+    // Basic fields
     name: '',
     email: '',
     password: '',
@@ -17,7 +17,16 @@ const Register = () => {
     location: {
       address: '',
       city: '',
-      pincode: ''
+      pincode: '',
+      coordinates: {
+        lat: '',
+        lng: ''
+      }
+    },
+    socialLinks: {
+      facebook: '',
+      twitter: '',
+      linkedin: ''
     },
     
     // Donor fields
@@ -32,7 +41,7 @@ const Register = () => {
       expectedAmount: ''
     },
     
-    // Blood bank fields
+    // Blood bank fields - FIXED: Units can be changed now
     bloodBankDetails: {
       registrationNumber: '',
       licenseNumber: '',
@@ -46,12 +55,14 @@ const Register = () => {
     // Patient fields
     patientDetails: {
       bloodGroup: '',
-      urgencyLevel: 'normal'
+      urgencyLevel: 'normal',
+      age: ''
     }
   });
 
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState(null);
 
   const handleUserTypeSelect = (type) => {
     setUserType(type);
@@ -62,19 +73,19 @@ const Register = () => {
     const { name, value } = e.target;
     
     if (name.includes('.')) {
-      const [parent, child] = name.split('.');
-      setFormData(prev => ({
-        ...prev,
-        [parent]: {
-          ...prev[parent],
-          [child]: value
-        }
-      }));
-    } else if (name.includes('[')) {
-      // Handle blood bank units
-      const match = name.match(/\[(.*?)\]/);
-      if (match) {
-        const bloodGroup = match[1];
+      const parts = name.split('.');
+      if (parts.length === 2) {
+        const [parent, child] = parts;
+        setFormData(prev => ({
+          ...prev,
+          [parent]: {
+            ...prev[parent],
+            [child]: value
+          }
+        }));
+      } else if (parts.length === 3 && parts[0] === 'bloodBankDetails' && parts[1] === 'totalUnitsAvailable') {
+        // Handle blood bank units update - FIXED
+        const bloodGroup = parts[2];
         setFormData(prev => ({
           ...prev,
           bloodBankDetails: {
@@ -83,6 +94,36 @@ const Register = () => {
               ...prev.bloodBankDetails.totalUnitsAvailable,
               [bloodGroup]: parseInt(value) || 0
             }
+          }
+        }));
+      } else if (parts.length === 3 && parts[0] === 'location' && parts[1] === 'coordinates') {
+        const coordType = parts[2];
+        setFormData(prev => ({
+          ...prev,
+          location: {
+            ...prev.location,
+            coordinates: {
+              ...prev.location.coordinates,
+              [coordType]: parseFloat(value) || 0
+            }
+          }
+        }));
+      } else if (parts.length === 3 && parts[0] === 'socialLinks') {
+        const socialType = parts[2];
+        setFormData(prev => ({
+          ...prev,
+          socialLinks: {
+            ...prev.socialLinks,
+            [socialType]: value
+          }
+        }));
+      } else {
+        const [parent, child] = parts;
+        setFormData(prev => ({
+          ...prev,
+          [parent]: {
+            ...prev[parent],
+            [child]: value
           }
         }));
       }
@@ -97,25 +138,42 @@ const Register = () => {
   const validateForm = () => {
     const newErrors = {};
     
-    if (!formData.name) newErrors.name = 'Name is required';
+    // Basic validation
+    if (!formData.name || formData.name.length < 3) newErrors.name = 'Name must be at least 3 characters';
     if (!formData.email) newErrors.email = 'Email is required';
-    if (!formData.password) newErrors.password = 'Password is required';
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
+    if (!formData.password || formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
+    if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
     if (!formData.phone) newErrors.phone = 'Phone is required';
+    if (!/^[6-9]\d{9}$/.test(formData.phone)) newErrors.phone = 'Enter a valid 10-digit Indian mobile number';
     
-    // Donor specific validations
+    // Donor validation
     if (userType.includes('donor')) {
       if (!formData.donorDetails.bloodGroup) newErrors.bloodGroup = 'Blood group required';
       if (!formData.donorDetails.age) newErrors.age = 'Age required';
-      if (formData.donorDetails.age < 18 || formData.donorDetails.age > 60) {
-        newErrors.age = 'Age must be between 18 and 60';
-      }
+      const age = parseInt(formData.donorDetails.age);
+      if (age < 18 || age > 65) newErrors.age = 'Age must be between 18 and 65';
       if (!formData.donorDetails.weight) newErrors.weight = 'Weight required';
-      if (formData.donorDetails.weight < 45) {
-        newErrors.weight = 'Minimum weight should be 45kg';
+      const weight = parseFloat(formData.donorDetails.weight);
+      if (weight < 45) newErrors.weight = 'Minimum weight should be 45kg';
+      if (formData.donorDetails.hemoglobin) {
+        const hb = parseFloat(formData.donorDetails.hemoglobin);
+        if (hb < 12.5) newErrors.hemoglobin = 'Hemoglobin should be at least 12.5 g/dL';
       }
+    }
+    
+    // Blood bank validation - FIXED: No longer fixed to 0
+    if (userType === 'blood_bank') {
+      if (!formData.bloodBankDetails.registrationNumber) newErrors.registrationNumber = 'Registration number required';
+      if (!formData.bloodBankDetails.establishedYear) newErrors.establishedYear = 'Established year required';
+      const year = parseInt(formData.bloodBankDetails.establishedYear);
+      if (year < 1900 || year > new Date().getFullYear()) {
+        newErrors.establishedYear = 'Invalid year';
+      }
+    }
+    
+    // Patient validation
+    if (userType === 'patient') {
+      if (!formData.patientDetails.bloodGroup) newErrors.patientBloodGroup = 'Blood group required';
     }
     
     return newErrors;
@@ -131,27 +189,54 @@ const Register = () => {
     }
 
     setLoading(true);
+    setVerificationStatus(null);
+    
     try {
       const response = await axios.post('http://localhost:5000/api/auth/register', {
         ...formData,
         userType
       });
       
-      // Store token
+      // Store token and user data
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       
-      alert('Registration successful!');
-      navigate('/dashboard');
+      // Show verification result
+      if (response.data.verification) {
+        if (response.data.verification.isFake) {
+          setVerificationStatus({
+            type: 'warning',
+            message: `Your account has been flagged for review (${response.data.verification.confidence}% confidence). You can still login but certain features may be limited.`,
+            flags: response.data.verification.flags
+          });
+        } else {
+          setVerificationStatus({
+            type: 'success',
+            message: 'Account verified successfully! You have full access to all features.'
+          });
+        }
+      }
+      
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 2000);
+      
     } catch (error) {
       console.error('Registration error:', error);
-      alert(error.response?.data?.message || 'Registration failed');
+      if (error.response?.status === 403) {
+        setVerificationStatus({
+          type: 'error',
+          message: error.response.data.message || 'Registration blocked due to suspicious activity'
+        });
+      } else {
+        alert(error.response?.data?.message || 'Registration failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // User Type Selection Screen
+  // Step 1: User Type Selection
   if (step === 1) {
     return (
       <div className="min-h-screen bg-gray-50 pt-20">
@@ -159,7 +244,7 @@ const Register = () => {
           <h2 className="text-3xl font-bold text-center mb-8">Join as a</h2>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Individual Donor (Free) */}
+            {/* Individual Donor */}
             <button
               onClick={() => handleUserTypeSelect('individual_donor')}
               className="p-6 bg-white rounded-xl shadow-md hover:shadow-lg transition text-center group"
@@ -207,12 +292,19 @@ const Register = () => {
               <p className="text-sm text-gray-600">Need blood urgently</p>
             </button>
           </div>
+          
+          <p className="text-center mt-8 text-gray-600">
+            Already have an account?{' '}
+            <Link to="/login" className="text-red-600 hover:text-red-700 font-semibold">
+              Login here
+            </Link>
+          </p>
         </div>
       </div>
     );
   }
 
-  // Registration Form
+  // Step 2: Registration Form
   return (
     <div className="min-h-screen bg-gray-50 pt-20 pb-12">
       <div className="max-w-3xl mx-auto px-4">
@@ -227,11 +319,34 @@ const Register = () => {
             </button>
           </div>
 
+          {/* Verification Status Display */}
+          {verificationStatus && (
+            <div className={`mb-6 p-4 rounded-lg ${
+              verificationStatus.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
+              verificationStatus.type === 'warning' ? 'bg-yellow-50 text-yellow-800 border border-yellow-200' :
+              'bg-red-50 text-red-800 border border-red-200'
+            }`}>
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium">{verificationStatus.message}</p>
+                  {verificationStatus.flags && verificationStatus.flags.length > 0 && (
+                    <ul className="mt-2 text-sm list-disc list-inside">
+                      {verificationStatus.flags.map((flag, idx) => (
+                        <li key={idx}>{flag}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Common Fields - Always Show */}
+            {/* Basic Information */}
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
                 <input
                   type="text"
                   name="name"
@@ -244,7 +359,7 @@ const Register = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
                 <input
                   type="email"
                   name="email"
@@ -257,7 +372,7 @@ const Register = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
                 <input
                   type="password"
                   name="password"
@@ -270,7 +385,7 @@ const Register = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
                 <input
                   type="password"
                   name="confirmPassword"
@@ -283,14 +398,14 @@ const Register = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
                 <input
                   type="tel"
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
-                  placeholder="+91 98765 43210"
+                  placeholder="9876543210"
                 />
                 {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
               </div>
@@ -320,13 +435,13 @@ const Register = () => {
               </div>
             </div>
 
-            {/* Donor Specific Fields */}
+            {/* Donor Details */}
             {(userType === 'individual_donor' || userType === 'paid_donor') && (
               <div className="border-t pt-6">
                 <h3 className="text-lg font-semibold mb-4">Donor Details</h3>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Blood Group</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Blood Group *</label>
                     <select
                       name="donorDetails.bloodGroup"
                       value={formData.donorDetails.bloodGroup}
@@ -342,7 +457,7 @@ const Register = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Age</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Age *</label>
                     <input
                       type="number"
                       name="donorDetails.age"
@@ -355,7 +470,7 @@ const Register = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Weight (kg)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Weight (kg) *</label>
                     <input
                       type="number"
                       name="donorDetails.weight"
@@ -378,6 +493,7 @@ const Register = () => {
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
                       placeholder="13.5"
                     />
+                    {errors.hemoglobin && <p className="text-red-500 text-sm mt-1">{errors.hemoglobin}</p>}
                   </div>
 
                   <div className="md:col-span-2">
@@ -420,20 +536,22 @@ const Register = () => {
               </div>
             )}
 
-            {/* Blood Bank Specific Fields */}
+            {/* Blood Bank Details - FIXED: Units can be changed */}
             {userType === 'blood_bank' && (
               <div className="border-t pt-6">
                 <h3 className="text-lg font-semibold mb-4">Blood Bank Details</h3>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Registration Number</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Registration Number *</label>
                     <input
                       type="text"
                       name="bloodBankDetails.registrationNumber"
                       value={formData.bloodBankDetails.registrationNumber}
                       onChange={handleChange}
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                      placeholder="REG123456"
                     />
+                    {errors.registrationNumber && <p className="text-red-500 text-sm mt-1">{errors.registrationNumber}</p>}
                   </div>
 
                   <div>
@@ -444,49 +562,54 @@ const Register = () => {
                       value={formData.bloodBankDetails.licenseNumber}
                       onChange={handleChange}
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                      placeholder="LIC123456"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Established Year</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Established Year *</label>
                     <input
                       type="number"
                       name="bloodBankDetails.establishedYear"
                       value={formData.bloodBankDetails.establishedYear}
                       onChange={handleChange}
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                      placeholder="2020"
                     />
+                    {errors.establishedYear && <p className="text-red-500 text-sm mt-1">{errors.establishedYear}</p>}
                   </div>
 
                   <div className="md:col-span-2">
-                    <h4 className="font-medium mb-2">Units Available</h4>
-                    <div className="grid grid-cols-4 gap-2">
+                    <h4 className="font-medium mb-3">Units Available (can be updated later)</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {['A+','A-','B+','B-','O+','O-','AB+','AB-'].map(bg => (
                         <div key={bg}>
-                          <label className="block text-sm text-gray-600">{bg}</label>
+                          <label className="block text-sm text-gray-600 mb-1">{bg}</label>
                           <input
                             type="number"
-                            name={`bloodBankDetails.totalUnitsAvailable[${bg}]`}
+                            name={`bloodBankDetails.totalUnitsAvailable.${bg}`}
                             value={formData.bloodBankDetails.totalUnitsAvailable[bg]}
                             onChange={handleChange}
-                            className="w-full px-2 py-1 border rounded"
+                            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
                             min="0"
+                            step="1"
                           />
                         </div>
                       ))}
                     </div>
+                    <p className="text-xs text-gray-500 mt-2">Note: You can update inventory later from your dashboard</p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Patient Specific Fields */}
+            {/* Patient Details */}
             {userType === 'patient' && (
               <div className="border-t pt-6">
                 <h3 className="text-lg font-semibold mb-4">Patient Details</h3>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Blood Group Needed</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Blood Group Needed *</label>
                     <select
                       name="patientDetails.bloodGroup"
                       value={formData.patientDetails.bloodGroup}
@@ -498,6 +621,19 @@ const Register = () => {
                         <option key={bg} value={bg}>{bg}</option>
                       ))}
                     </select>
+                    {errors.patientBloodGroup && <p className="text-red-500 text-sm mt-1">{errors.patientBloodGroup}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Age</label>
+                    <input
+                      type="number"
+                      name="patientDetails.age"
+                      value={formData.patientDetails.age}
+                      onChange={handleChange}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                      placeholder="45"
+                    />
                   </div>
 
                   <div>
@@ -517,6 +653,70 @@ const Register = () => {
               </div>
             )}
 
+            {/* Social Links (Optional - Helps with verification) */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-semibold mb-4">Social Links (Optional)</h3>
+              <p className="text-sm text-gray-500 mb-3">Adding social links helps verify your identity</p>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Facebook Profile URL</label>
+                  <input
+                    type="url"
+                    name="socialLinks.facebook"
+                    value={formData.socialLinks.facebook}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                    placeholder="https://facebook.com/username"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">LinkedIn Profile URL</label>
+                  <input
+                    type="url"
+                    name="socialLinks.linkedin"
+                    value={formData.socialLinks.linkedin}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                    placeholder="https://linkedin.com/in/username"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Location Coordinates */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-semibold mb-4">Location Coordinates (Optional)</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+                  <input
+                    type="number"
+                    step="any"
+                    name="location.coordinates.lat"
+                    value={formData.location.coordinates.lat}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                    placeholder="13.0827"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+                  <input
+                    type="number"
+                    step="any"
+                    name="location.coordinates.lng"
+                    value={formData.location.coordinates.lng}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                    placeholder="80.2707"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                You can enable location sharing later for real-time tracking
+              </p>
+            </div>
+            
             {/* Submit Button */}
             <div className="border-t pt-6">
               <button

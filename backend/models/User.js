@@ -5,7 +5,9 @@ const userSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    trim: true
+    trim: true,
+    minlength: 3,
+    maxlength: 100
   },
   email: {
     type: String,
@@ -20,7 +22,13 @@ const userSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return /^[6-9]\d{9}$/.test(v);
+      },
+      message: 'Invalid phone number format'
+    }
   },
   userType: {
     type: String,
@@ -37,15 +45,32 @@ const userSchema = new mongoose.Schema({
     }
   },
   
+  // Current live location for tracking
+  currentLocation: {
+    lat: Number,
+    lng: Number,
+    timestamp: Date
+  },
+  
   // Donor specific fields (for individual_donor and paid_donor)
   donorDetails: {
     bloodGroup: {
       type: String,
       enum: ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']
     },
-    age: Number,
-    weight: Number,
-    hemoglobin: Number,
+    age: {
+      type: Number,
+      min: 18,
+      max: 65
+    },
+    weight: {
+      type: Number,
+      min: 45
+    },
+    hemoglobin: {
+      type: Number,
+      min: 12.5
+    },
     diseases: [String],
     lastDonationDate: Date,
     isAvailable: {
@@ -72,14 +97,14 @@ const userSchema = new mongoose.Schema({
     licenseNumber: String,
     establishedYear: Number,
     totalUnitsAvailable: {
-      'A+': Number,
-      'A-': Number,
-      'B+': Number,
-      'B-': Number,
-      'O+': Number,
-      'O-': Number,
-      'AB+': Number,
-      'AB-': Number
+      'A+': { type: Number, default: 0 },
+      'A-': { type: Number, default: 0 },
+      'B+': { type: Number, default: 0 },
+      'B-': { type: Number, default: 0 },
+      'O+': { type: Number, default: 0 },
+      'O-': { type: Number, default: 0 },
+      'AB+': { type: Number, default: 0 },
+      'AB-': { type: Number, default: 0 }
     },
     verified: {
       type: Boolean,
@@ -95,9 +120,37 @@ const userSchema = new mongoose.Schema({
     },
     urgencyLevel: {
       type: String,
-      enum: ['normal', 'urgent', 'emergency']
+      enum: ['normal', 'urgent', 'emergency'],
+      default: 'normal'
     },
+    age: Number,
     medicalReports: [String] // URLs to uploaded reports
+  },
+
+  // Verification & Spam Detection Fields
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  isSpam: {
+    type: Boolean,
+    default: false
+  },
+  verificationFlags: {
+    type: [String],
+    default: []
+  },
+  verificationConfidence: {
+    type: Number,
+    default: 0
+  },
+  verificationDate: Date,
+  
+  // Social Links for verification
+  socialLinks: {
+    facebook: String,
+    twitter: String,
+    linkedin: String
   },
 
   // Common tracking
@@ -106,11 +159,13 @@ const userSchema = new mongoose.Schema({
     default: Date.now
   },
   lastActive: Date,
-  isVerified: {
-    type: Boolean,
-    default: false
-  }
+  registeredAt: Date
 });
+
+// Index for better query performance
+userSchema.index({ userType: 1, 'donorDetails.bloodGroup': 1 });
+userSchema.index({ isSpam: 1 });
+userSchema.index({ location: '2dsphere' });
 
 // Donation history schema (separate collection)
 const donationSchema = new mongoose.Schema({
@@ -138,8 +193,30 @@ const donationSchema = new mongoose.Schema({
     type: String,
     enum: ['voluntary', 'paid']
   },
-  amount: Number // for paid donations
+  amount: Number, // for paid donations
+  requestId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BloodRequest'
+  }
 });
+
+// Location history schema
+const locationHistorySchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  lat: Number,
+  lng: Number,
+  timestamp: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+locationHistorySchema.index({ userId: 1, timestamp: -1 });
 
 export const User = mongoose.model('User', userSchema);
 export const Donation = mongoose.model('Donation', donationSchema);
+export const LocationHistory = mongoose.model('LocationHistory', locationHistorySchema);

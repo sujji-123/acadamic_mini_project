@@ -1,11 +1,11 @@
-# dependencies
+
 node_modules
 .pnp
 .pnp.js
 yarn.lock
 package-lock.json
 
-# env files
+
 .env
 .env.local
 .env.*
@@ -15,31 +15,31 @@ backend/.env
 frontend/.env
 ML/.env
 
-# logs
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
 
-# build folders
+
 dist
 build
 out
 .next
 
-# OS files
+
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# IDE
+
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Python
+
 __pycache__/
 *.pyc
 *.pyo
@@ -57,28 +57,28 @@ ML/app/training/__pycache__/
 ML/app/models/*.pkl
 !ML/app/models/.gitkeep
 
-# Testing
+
 coverage/
 .nyc_output/
 
-# Uploads
+
 uploads/
 temp/
 public/uploads/
 
-# MongoDB
+
 *.mongodb
 
-# Vite
+
 vite.config.js.*
 *.tsbuildinfo
 
-# WhatsApp Bot Session Data
+
 backend/.wwebjs_auth/
 
-# Make sure env variables and modules are ignored too
+
 node_modules/
 .env
 
-# Ignore Large ML Models (to prevent GitHub 100MB block)
+
 ML/app/models/*.pkl
