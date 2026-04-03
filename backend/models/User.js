@@ -32,7 +32,8 @@ const userSchema = new mongoose.Schema({
   },
   userType: {
     type: String,
-    enum: ['individual_donor', 'paid_donor', 'blood_bank', 'patient'],
+    // FIX: Added 'hospital' to the enum to support the Organ Transplant Network
+    enum: ['individual_donor', 'paid_donor', 'blood_bank', 'patient', 'hospital'],
     required: true
   },
   location: {

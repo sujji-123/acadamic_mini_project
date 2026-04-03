@@ -5,3 +5,89 @@
 html {
   scroll-behavior: smooth;
 }
+
+/* --- Google Translate Customization --- */
+body {
+  top: 0 !important;
+}
+.skiptranslate iframe {
+  display: none !important;
+}
+#goog-gt-tt {
+  display: none !important;
+}
+
+/* Desktop Language Selector Styles */
+.language-selector-wrapper .goog-te-gadget-simple {
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  height: auto !important;
+}
+
+.language-selector-wrapper .goog-te-gadget-simple .goog-te-menu-value {
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+.language-selector-wrapper .goog-te-gadget-simple .goog-te-menu-value span {
+  color: #4b5563 !important;
+  font-family: inherit !important;
+  font-weight: 500 !important;
+}
+
+.language-selector-wrapper .goog-te-gadget-simple .goog-te-menu-value span:hover {
+  color: #dc2626 !important;
+}
+
+/* Mobile Language Selector Styles */
+.mobile-language-selector .goog-te-gadget-simple,
+.mobile-menu-language-selector .goog-te-gadget-simple {
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.mobile-language-selector .goog-te-gadget-simple .goog-te-menu-value,
+.mobile-menu-language-selector .goog-te-gadget-simple .goog-te-menu-value {
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 12px !important;
+}
+
+.mobile-language-selector .goog-te-gadget-simple .goog-te-menu-value span,
+.mobile-menu-language-selector .goog-te-gadget-simple .goog-te-menu-value span {
+  color: #4b5563 !important;
+  font-family: inherit !important;
+  font-weight: 500 !important;
+  font-size: 12px !important;
+}
+
+/* Hide Google Translate icon and extra elements */
+.goog-te-gadget-icon {
+  display: none !important;
+}
+
+.goog-te-gadget-simple .goog-te-menu-value span:nth-child(3),
+.goog-te-gadget-simple .goog-te-menu-value span:nth-child(5) {
+  display: none !important;
+}
+
+/* Ensure consistent alignment */
+.goog-te-gadget-simple {
+  white-space: nowrap !important;
+}
+
+/* Fix for any extra spacing */
+.goog-te-gadget {
+  font-family: inherit !important;
+  font-size: 0 !important;
+}

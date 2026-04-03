@@ -368,7 +368,6 @@ router.post('/update-location', async (req, res) => {
           }
         }
       },
-      // FIX: Changed from { new: true } to { returnDocument: 'after' } to remove Mongoose warning
       { returnDocument: 'after' }
     );
     
@@ -397,8 +396,7 @@ router.get('/location/:userId', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const targetUserId = req.params.userId;
     
-    // Check if there's an active request connection between users
-    const Request = mongoose.model('BloodRequest'); // FIX: Added proper model reference
+    const Request = mongoose.model('BloodRequest'); 
     const activeConnection = await Request.findOne({
       $or: [
         { patientId: decoded.userId, acceptedDonorId: targetUserId, status: 'fulfilled' },
@@ -424,6 +422,66 @@ router.get('/location/:userId', async (req, res) => {
   } catch (error) {
     console.error('Get location error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// =========================================================================
+// NEW ADMIN ROUTE: SECURE HOSPITAL REGISTRATION (No Auth Token Required, Uses Secret Key)
+// =========================================================================
+router.post('/register-hospital', async (req, res) => {
+  try {
+    const { adminSecret, name, email, phone, location } = req.body;
+
+    // Hardcoded Admin Key for academic project simplicity & security
+    const MASTER_KEY = "IEEE_ADMIN_2026";
+
+    if (adminSecret !== MASTER_KEY) {
+      return res.status(403).json({ success: false, message: 'Unauthorized: Invalid Admin Secret Key.' });
+    }
+
+    if (!name || !email || !phone || !location.lat || !location.lng) {
+      return res.status(400).json({ success: false, message: 'All fields are required.' });
+    }
+
+    // Check if hospital email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: 'Hospital email already exists in database.' });
+    }
+
+    // Default secure password for hospitals created by admin
+    const hashedPassword = await bcrypt.hash("Hospital@Secure123", 10);
+
+    const newHospital = new User({
+      name,
+      email,
+      password: hashedPassword,
+      phone,
+      userType: 'hospital', // Crucial for Organ Request matching!
+      location: {
+        address: location.address || '',
+        city: location.city || '',
+        coordinates: {
+          lat: location.lat,
+          lng: location.lng
+        }
+      },
+      isVerified: true, // Admin created it, so it's auto-verified
+      isSpam: false,
+      registeredAt: new Date()
+    });
+
+    await newHospital.save();
+
+    res.status(201).json({
+      success: true,
+      message: `Hospital '${name}' has been successfully added to the Transplant Network Database!`,
+      hospitalId: newHospital._id
+    });
+
+  } catch (error) {
+    console.error('Admin Hospital Registration Error:', error);
+    res.status(500).json({ success: false, message: 'Server error while registering hospital.' });
   }
 });
 

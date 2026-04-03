@@ -6,7 +6,9 @@ import Register from './components/Register';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import AcceptRequest from './components/AcceptRequest';
-import FindDonors from './components/FindDonors'; // <--- 1. ADD THIS IMPORT
+import FindDonors from './components/FindDonors';
+import FindOrgans from './components/FindOrgans';
+import AdminAddHospital from './components/AdminAddHospital'; // <-- NEW IMPORT
 
 function App() {
   return (
@@ -19,10 +21,11 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/accept-request/:requestId/:donorId" element={<AcceptRequest />} />
-          
-          {/* 2. ADD THIS NEW ROUTE */}
           <Route path="/find-donors" element={<FindDonors />} /> 
+          <Route path="/find-organs" element={<FindOrgans />} /> 
           
+          {/* THE SECRET ADMIN ROUTE */}
+          <Route path="/admin/add-hospital" element={<AdminAddHospital />} /> 
         </Routes>
       </div>
     </Router>
