@@ -5,7 +5,8 @@ import LandingPage from './components/LandingPage';
 import Register from './components/Register';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
-import AcceptRequest from './components/AcceptRequest'; // NEW LINE
+import AcceptRequest from './components/AcceptRequest';
+import FindDonors from './components/FindDonors'; // <--- 1. ADD THIS IMPORT
 
 function App() {
   return (
@@ -17,7 +18,11 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/accept-request/:requestId/:donorId" element={<AcceptRequest />} /> {/* NEW LINE */}
+          <Route path="/accept-request/:requestId/:donorId" element={<AcceptRequest />} />
+          
+          {/* 2. ADD THIS NEW ROUTE */}
+          <Route path="/find-donors" element={<FindDonors />} /> 
+          
         </Routes>
       </div>
     </Router>

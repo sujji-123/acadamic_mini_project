@@ -20,8 +20,7 @@ const haversineDistance = (lat1, lon1, lat2, lon2) => {
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = 
     Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
 };
@@ -31,56 +30,52 @@ const calculateEligibilityScore = (donor) => {
   let score = 0;
   const details = donor.donorDetails || {};
   
-  // Age score (max 25)
   if (details.age >= 18 && details.age <= 60) {
     if (details.age >= 25 && details.age <= 45) {
-      score += 25; // Optimal age
+      score += 25; 
     } else {
-      score += 20; // Acceptable age
+      score += 20; 
     }
   } else {
-    return 0; // Not eligible at all
+    return 0; 
   }
   
-  // Weight score (max 20)
   if (details.weight >= 50) {
     if (details.weight >= 70) {
-      score += 20; // Excellent weight
+      score += 20; 
     } else {
-      score += 15; // Good weight
+      score += 15; 
     }
   } else {
-    return 0; // Below minimum weight
+    return 0; 
   }
   
-  // Hemoglobin score (max 25)
   if (details.hemoglobin >= 12.5) {
     if (details.hemoglobin >= 14) {
-      score += 25; // Excellent hemoglobin
+      score += 25; 
     } else {
-      score += 20; // Good hemoglobin
+      score += 20; 
     }
   } else {
-    return 0; // Below minimum hemoglobin
+    return 0; 
   }
   
-  // Last donation score (max 30)
   if (details.lastDonationDate) {
     const daysSince = Math.floor((new Date() - new Date(details.lastDonationDate)) / (1000 * 60 * 60 * 24));
     if (daysSince >= 90) {
       if (daysSince >= 180) {
-        score += 30; // Long time since last donation
+        score += 30; 
       } else {
-        score += 20; // Just crossed minimum gap
+        score += 20; 
       }
     } else {
-      return 0; // Donated too recently
+      return 0; 
     }
   } else {
-    score += 30; // Never donated before
+    score += 30; 
   }
   
-  return Math.min(100, score); // Cap at 100
+  return Math.min(100, score); 
 };
 
 // Call ML service for donor ranking
@@ -95,7 +90,7 @@ const callMLRankingService = async (bloodGroup, latitude, longitude) => {
     return response.data;
   } catch (error) {
     console.error('ML Service error:', error.message);
-    return null; // Fallback to local calculation
+    return null; 
   }
 };
 
@@ -105,7 +100,7 @@ const callMLRankingService = async (bloodGroup, latitude, longitude) => {
 
 router.post('/find-nearby', authenticate, async (req, res) => {
   try {
-    const { bloodGroup, latitude, longitude, radius = 10 } = req.body;
+    const { bloodGroup, latitude, longitude, radius = 50 } = req.body;
 
     if (!bloodGroup || !latitude || !longitude) {
       return res.status(400).json({ 
@@ -113,10 +108,12 @@ router.post('/find-nearby', authenticate, async (req, res) => {
       });
     }
 
-    // Find all eligible donors with matching blood group
     const donors = await User.find({
-      userType: { $in: ['individual_donor', 'paid_donor'] },
-      'donorDetails.bloodGroup': bloodGroup,
+      userType: { $in: ['individual_donor', 'paid_donor', 'blood_bank'] },
+      $or: [
+        { 'donorDetails.bloodGroup': bloodGroup },
+        { 'bloodBankDetails.registrationNumber': { $exists: true } }
+      ],
       'donorDetails.isAvailable': true
     });
 
@@ -127,7 +124,6 @@ router.post('/find-nearby', authenticate, async (req, res) => {
       });
     }
 
-    // Calculate distance and eligibility for each donor
     const donorsWithDistance = await Promise.all(
       donors.map(async (donor) => {
         const donorLat = donor.location?.coordinates?.lat;
@@ -138,12 +134,12 @@ router.post('/find-nearby', authenticate, async (req, res) => {
           distance = haversineDistance(latitude, longitude, donorLat, donorLng);
         }
 
-        const eligibilityScore = calculateEligibilityScore(donor);
+        const eligibilityScore = donor.userType === 'blood_bank' ? 100 : calculateEligibilityScore(donor);
 
         return {
           id: donor._id,
           name: donor.name,
-          bloodGroup: donor.donorDetails?.bloodGroup,
+          bloodGroup: donor.donorDetails?.bloodGroup || bloodGroup,
           phone: donor.phone,
           distance: Math.round(distance * 100) / 100,
           eligibilityScore,
@@ -155,17 +151,15 @@ router.post('/find-nearby', authenticate, async (req, res) => {
           userType: donor.userType,
           expectedAmount: donor.donorDetails?.expectedAmount,
           location: donor.location,
-          isEligible: eligibilityScore > 60 // Minimum threshold
+          isEligible: eligibilityScore > 60 || donor.userType === 'blood_bank'
         };
       })
     );
 
-    // Filter by radius and eligibility
     const filteredDonors = donorsWithDistance.filter(
       d => d.distance <= radius && d.isEligible
     );
 
-    // Sort by distance (closest first) and then by eligibility score
     filteredDonors.sort((a, b) => {
       if (a.distance === b.distance) {
         return b.eligibilityScore - a.eligibilityScore;
@@ -176,7 +170,7 @@ router.post('/find-nearby', authenticate, async (req, res) => {
     res.json({
       success: true,
       count: filteredDonors.length,
-      donors: filteredDonors.slice(0, 20) // Return top 20
+      donors: filteredDonors.slice(0, 20) 
     });
 
   } catch (error) {
@@ -199,7 +193,6 @@ router.post('/find-best-ml', authenticate, async (req, res) => {
       });
     }
 
-    // Try ML service first
     const mlResult = await callMLRankingService(bloodGroup, latitude, longitude);
 
     if (mlResult && mlResult.success) {
@@ -211,7 +204,6 @@ router.post('/find-best-ml', authenticate, async (req, res) => {
       });
     }
 
-    // Fallback to local calculation if ML service fails
     console.log('ML service unavailable, using local calculation');
     
     const donors = await User.find({
@@ -241,7 +233,6 @@ router.post('/find-best-ml', authenticate, async (req, res) => {
 
         const eligibilityScore = calculateEligibilityScore(donor);
 
-        // Calculate final rank score (60% eligibility, 40% proximity)
         const distanceScore = distance === Infinity ? 0 : Math.max(0, 100 - (distance * 5));
         const finalScore = (eligibilityScore * 0.6) + (distanceScore * 0.4);
 
@@ -263,10 +254,8 @@ router.post('/find-best-ml', authenticate, async (req, res) => {
       })
     );
 
-    // Filter eligible donors (score > 60)
     const eligibleDonors = rankedDonors.filter(d => d.eligibilityScore > 60);
     
-    // Sort by final score
     eligibleDonors.sort((a, b) => b.finalScore - a.finalScore);
 
     res.json({
@@ -290,19 +279,17 @@ router.post('/find-best-ml', authenticate, async (req, res) => {
 router.get('/:donorId', authenticate, async (req, res) => {
   try {
     const donor = await User.findById(req.params.donorId)
-      .select('-password'); // Exclude password
+      .select('-password'); 
 
     if (!donor) {
       return res.status(404).json({ message: 'Donor not found' });
     }
 
-    // Check if user is a donor
-    if (!['individual_donor', 'paid_donor'].includes(donor.userType)) {
+    if (!['individual_donor', 'paid_donor', 'blood_bank'].includes(donor.userType)) {
       return res.status(400).json({ message: 'User is not a donor' });
     }
 
-    // Calculate eligibility score
-    const eligibilityScore = calculateEligibilityScore(donor);
+    const eligibilityScore = donor.userType === 'blood_bank' ? 100 : calculateEligibilityScore(donor);
 
     res.json({
       success: true,
@@ -322,7 +309,7 @@ router.get('/:donorId', authenticate, async (req, res) => {
         expectedAmount: donor.donorDetails?.expectedAmount,
         location: donor.location,
         eligibilityScore,
-        isEligible: eligibilityScore > 60,
+        isEligible: eligibilityScore > 60 || donor.userType === 'blood_bank',
         verified: donor.isVerified
       }
     });
@@ -341,14 +328,16 @@ router.put('/availability', authenticate, async (req, res) => {
   try {
     const { isAvailable } = req.body;
 
-    // Find user and ensure they are a donor
     const user = await User.findById(req.userId);
     
-    if (!['individual_donor', 'paid_donor'].includes(user.userType)) {
+    if (!['individual_donor', 'paid_donor', 'blood_bank'].includes(user.userType)) {
       return res.status(400).json({ message: 'User is not a donor' });
     }
 
-    // Update availability
+    if (!user.donorDetails) {
+        user.donorDetails = {};
+    }
+
     user.donorDetails.isAvailable = isAvailable;
     user.lastActive = new Date();
     await user.save();
@@ -356,7 +345,8 @@ router.put('/availability', authenticate, async (req, res) => {
     res.json({
       success: true,
       message: `Availability updated to ${isAvailable ? 'available' : 'unavailable'}`,
-      isAvailable
+      isAvailable,
+      user
     });
 
   } catch (error) {
@@ -379,20 +369,15 @@ router.post('/donation-completed', authenticate, async (req, res) => {
       return res.status(400).json({ message: 'User is not a donor' });
     }
 
-    // Update donor details
     donor.donorDetails.lastDonationDate = new Date();
     donor.donorDetails.donationCount = (donor.donorDetails.donationCount || 0) + 1;
-    donor.donorDetails.isAvailable = false; // Set unavailable temporarily
+    donor.donorDetails.isAvailable = false; 
     
-    // Set next eligible date (after 90 days)
     const nextEligibleDate = new Date();
     nextEligibleDate.setDate(nextEligibleDate.getDate() + 90);
     donor.donorDetails.nextEligibleDate = nextEligibleDate;
 
     await donor.save();
-
-    // Here you would also create a donation record in a separate collection
-    // This is optional - you can add a Donation model later
 
     res.json({
       success: true,
@@ -417,8 +402,11 @@ router.get('/blood-group/:bloodGroup', authenticate, async (req, res) => {
     const { limit = 20, available = true } = req.query;
 
     const query = {
-      userType: { $in: ['individual_donor', 'paid_donor'] },
-      'donorDetails.bloodGroup': bloodGroup
+      userType: { $in: ['individual_donor', 'paid_donor', 'blood_bank'] },
+      $or: [
+        { 'donorDetails.bloodGroup': bloodGroup },
+        { 'bloodBankDetails.registrationNumber': { $exists: true } }
+      ]
     };
 
     if (available === 'true') {
@@ -426,21 +414,20 @@ router.get('/blood-group/:bloodGroup', authenticate, async (req, res) => {
     }
 
     const donors = await User.find(query)
-      .select('name phone location donorDetails userType')
+      .select('name phone location donorDetails bloodBankDetails userType')
       .limit(parseInt(limit));
 
-    // Calculate eligibility for each donor
     const donorsWithScore = donors.map(donor => ({
       id: donor._id,
       name: donor.name,
       phone: donor.phone,
-      bloodGroup: donor.donorDetails?.bloodGroup,
+      bloodGroup: donor.donorDetails?.bloodGroup || bloodGroup,
       location: donor.location,
       age: donor.donorDetails?.age,
       weight: donor.donorDetails?.weight,
       isAvailable: donor.donorDetails?.isAvailable,
       userType: donor.userType,
-      eligibilityScore: calculateEligibilityScore(donor),
+      eligibilityScore: donor.userType === 'blood_bank' ? 100 : calculateEligibilityScore(donor),
       donationCount: donor.donorDetails?.donationCount || 0
     }));
 
@@ -468,7 +455,6 @@ router.post('/verify-user', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Prepare features for ML model
     const features = {
       email_domain_score: user.email.includes('gmail') || user.email.includes('yahoo') ? 0.9 : 0.5,
       phone_valid: user.phone ? 1 : 0,
@@ -477,11 +463,10 @@ router.post('/verify-user', authenticate, async (req, res) => {
       registration_hour: new Date(user.createdAt).getHours(),
       profile_completeness: calculateProfileCompleteness(user),
       location_accuracy: user.location?.coordinates ? 0.8 : 0.2,
-      social_links: 0, // Default
+      social_links: 0, 
       activity_frequency: user.lastActive ? 0.7 : 0.3
     };
 
-    // Call ML service
     try {
       const mlResponse = await axios.post(`${ML_SERVICE_URL}/detect-fake-user`, features);
       
@@ -495,7 +480,6 @@ router.post('/verify-user', authenticate, async (req, res) => {
       console.error('ML service error:', mlError.message);
     }
 
-    // Fallback rule-based verification
     const isFake = (
       features.name_length < 3 ||
       features.age < 15 ||
@@ -520,12 +504,10 @@ router.post('/verify-user', authenticate, async (req, res) => {
   }
 });
 
-// Helper function to calculate profile completeness
 const calculateProfileCompleteness = (user) => {
   let total = 0;
   let filled = 0;
 
-  // Check basic fields
   if (user.name) filled++;
   total++;
   
@@ -535,7 +517,6 @@ const calculateProfileCompleteness = (user) => {
   if (user.phone) filled++;
   total++;
   
-  // Check donor details
   if (user.donorDetails) {
     if (user.donorDetails.age) filled++;
     total++;
@@ -550,7 +531,6 @@ const calculateProfileCompleteness = (user) => {
     total++;
   }
   
-  // Check location
   if (user.location?.coordinates) filled++;
   total++;
 
@@ -563,7 +543,6 @@ const calculateProfileCompleteness = (user) => {
 
 router.get('/forecast/demand', authenticate, async (req, res) => {
   try {
-    // Call ML service for demand forecast
     try {
       const mlResponse = await axios.get(`${ML_SERVICE_URL}/forecast-demand?days=30`);
       
@@ -578,21 +557,17 @@ router.get('/forecast/demand', authenticate, async (req, res) => {
       console.error('ML forecast error:', mlError.message);
     }
 
-    // Fallback: Generate simple forecast based on donor counts
     const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
     const forecast = [];
 
     for (const bg of bloodGroups) {
-      // Count donors for this blood group
       const donorCount = await User.countDocuments({
         userType: { $in: ['individual_donor', 'paid_donor'] },
         'donorDetails.bloodGroup': bg,
         'donorDetails.isAvailable': true
       });
 
-      // Count recent requests (you would need a Request model for this)
-      // For now, use donor count as proxy for demand
-      const demandScore = Math.max(1, 50 - donorCount); // Less donors = higher demand
+      const demandScore = Math.max(1, 50 - donorCount); 
 
       forecast.push({
         bloodGroup: bg,
@@ -612,6 +587,42 @@ router.get('/forecast/demand', authenticate, async (req, res) => {
     console.error('Demand forecast error:', error);
     res.status(500).json({ message: 'Server error' });
   }
+});
+
+// ==============================================================
+// NEW ENDPOINT 9: Update Blood Bank Inventory
+// ==============================================================
+router.put('/inventory', authenticate, async (req, res) => {
+    try {
+      const { bloodGroup, units } = req.body;
+  
+      const user = await User.findById(req.userId);
+      
+      if (user.userType !== 'blood_bank') {
+        return res.status(403).json({ message: 'Only Blood Banks can update inventory' });
+      }
+      
+      // Since we don't have a complex inventory schema yet, we'll store it as a generic string or status
+      // In a real app, you'd have a map of { 'A+': 50, 'O-': 10 }
+      
+      if (!user.donorDetails) user.donorDetails = {};
+      
+      // If units > 0, they are available. If 0, they are unavailable for that type
+      user.donorDetails.isAvailable = units > 0;
+      user.donorDetails.bloodGroup = bloodGroup; // Assuming they are updating the primary group they have
+  
+      await user.save();
+  
+      res.json({
+        success: true,
+        message: `Inventory updated for ${bloodGroup}`,
+        isAvailable: user.donorDetails.isAvailable
+      });
+  
+    } catch (error) {
+      console.error('Update inventory error:', error);
+      res.status(500).json({ message: 'Server error updating inventory' });
+    }
 });
 
 export default router;

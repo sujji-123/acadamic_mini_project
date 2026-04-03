@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Droplet, Heart, MapPin, Clock, User, LogOut, Bell, Calendar, Loader,
-  Navigation, ShieldCheck, Eye, Target, RefreshCw
+  Navigation, ShieldCheck, Eye, Target, RefreshCw, CheckCircle, X
 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -11,60 +11,75 @@ const Dashboard = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [requestLoading, setRequestLoading] = useState(false);
-  const [trackingUsers, setTrackingUsers] = useState([]);
-  const [trackingLoading, setTrackingLoading] = useState(false);
   const [locationSharing, setLocationSharing] = useState(false);
   const [watchId, setWatchId] = useState(null);
-  const [selectedTracking, setSelectedTracking] = useState(null);
-  const [trackedLocation, setTrackedLocation] = useState(null);
   const [locationError, setLocationError] = useState(null);
 
+  // New states for the active requests and UI modals
+  const [activeRequests, setActiveRequests] = useState([]);
+  const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+  const [isAvailableToggle, setIsAvailableToggle] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [inventoryBg, setInventoryBg] = useState('');
+  const [inventoryUnits, setInventoryUnits] = useState(0);
+
   const BACKEND_URL = 'http://localhost:5000';
-  const ML_URL = 'http://localhost:8000';
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-
-      try {
-        const response = await axios.get(`${BACKEND_URL}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setUser(response.data);
-        
-        
-        if (response.data && response.data._id) {
-          fetchActiveTrackings(token, response.data._id);
-        }
-      } catch (error) {
-        console.error('Error fetching user:', error);
-        if (error.response?.data?.isSpam) {
-          alert('Your account has been flagged for suspicious activity. Please contact support.');
-        }
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        navigate('/login');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchUserData();
-    
     
     return () => {
       if (watchId) {
         navigator.geolocation.clearWatch(watchId);
       }
-      if (window.trackingInterval) {
-        clearInterval(window.trackingInterval);
-      }
     };
   }, [navigate]);
+
+  const fetchUserData = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUser(response.data);
+      if (response.data.donorDetails) {
+          setIsAvailableToggle(response.data.donorDetails.isAvailable);
+      }
+      
+      // Fetch active requests so patient can see who accepted
+      fetchMyRequests(token);
+
+    } catch (error) {
+      console.error('Error fetching user:', error);
+      if (error.response?.data?.isSpam) {
+        alert('Your account has been flagged for suspicious activity. Please contact support.');
+      }
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      navigate('/login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchMyRequests = async (token) => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/requests/my-requests`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data.success) {
+        setActiveRequests(response.data.requests || []);
+      }
+    } catch (error) {
+      console.error('Error fetching requests:', error);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -72,25 +87,9 @@ const Dashboard = () => {
     navigate('/');
   };
 
-  const fetchActiveTrackings = async (token, userId) => {
-    if (!userId) return;
-    
-    try {
-      setTrackingLoading(true);
-      const response = await axios.get(`${BACKEND_URL}/api/tracking/active/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (response.data.success) {
-        setTrackingUsers(response.data.trackings || []);
-      }
-    } catch (error) {
-      console.error('Error fetching trackings:', error);
-      setTrackingUsers([]);
-    } finally {
-      setTrackingLoading(false);
-    }
-  };
-
+  // ==========================================
+  // LOCATION SHARING LOGIC
+  // ==========================================
   const startLocationSharing = () => {
     if (!navigator.geolocation) {
       setLocationError('Geolocation is not supported by your browser');
@@ -99,6 +98,28 @@ const Dashboard = () => {
 
     setLocationSharing(true);
     setLocationError(null);
+
+    // Get current location immediately
+    navigator.geolocation.getCurrentPosition(
+        async (position) => {
+            const { latitude, longitude } = position.coords;
+            try {
+              const token = localStorage.getItem('token');
+              await axios.post(`${BACKEND_URL}/api/auth/update-location`, 
+                { latitude, longitude },
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              console.log("Location initially updated.");
+            } catch (error) {
+              console.error('Error updating location:', error);
+            }
+          },
+          (error) => {
+            console.error('Geolocation error:', error);
+            setLocationError('Unable to get your location right now.');
+            setLocationSharing(false);
+          }
+    );
 
     const id = navigator.geolocation.watchPosition(
       async (position) => {
@@ -110,17 +131,15 @@ const Dashboard = () => {
             { headers: { Authorization: `Bearer ${token}` } }
           );
         } catch (error) {
-          console.error('Error updating location:', error);
+          console.error('Error updating live location:', error);
         }
       },
       (error) => {
         console.error('Geolocation error:', error);
-        setLocationError('Unable to get your location. Please enable location services.');
-        setLocationSharing(false);
       },
       {
         enableHighAccuracy: true,
-        timeout: 5000,
+        timeout: 10000,
         maximumAge: 0
       }
     );
@@ -136,53 +155,9 @@ const Dashboard = () => {
     setLocationSharing(false);
   };
 
-  const trackUserLocation = async (userId, userName) => {
-    try {
-      const token = localStorage.getItem('token');
-      setSelectedTracking({ userId, userName });
-      setTrackedLocation(null);
-      
-      const response = await axios.get(`${BACKEND_URL}/api/tracking/location/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.location) {
-        setTrackedLocation(response.data.location);
-      }
-      
-      if (window.trackingInterval) {
-        clearInterval(window.trackingInterval);
-      }
-      
-      window.trackingInterval = setInterval(async () => {
-        try {
-          const refreshResponse = await axios.get(`${BACKEND_URL}/api/tracking/location/${userId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (refreshResponse.data.location) {
-            setTrackedLocation(refreshResponse.data.location);
-          }
-        } catch (err) {
-          console.error('Error refreshing location:', err);
-        }
-      }, 10000);
-      
-    } catch (error) {
-      console.error('Error tracking user:', error);
-      alert('Unable to track this user. Make sure you have an active request connection.');
-      setSelectedTracking(null);
-    }
-  };
-
-  const stopTracking = () => {
-    if (window.trackingInterval) {
-      clearInterval(window.trackingInterval);
-      window.trackingInterval = null;
-    }
-    setSelectedTracking(null);
-    setTrackedLocation(null);
-  };
-
+  // ==========================================
+  // PATIENT ACTIONS
+  // ==========================================
   const handleEmergencyRequest = async () => {
     try {
       const defaultBg = user?.patientDetails?.bloodGroup || '';
@@ -190,24 +165,91 @@ const Dashboard = () => {
       
       if (!bloodGroup) return; 
 
-      setRequestLoading(true);
-      const token = localStorage.getItem('token');
+      // Get user's location to pass to the request
+      navigator.geolocation.getCurrentPosition(async (position) => {
+          setRequestLoading(true);
+          const token = localStorage.getItem('token');
+          
+          try {
+            const response = await axios.post(`${BACKEND_URL}/api/requests/emergency`, 
+                { 
+                    bloodGroup: bloodGroup.toUpperCase(),
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude
+                },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            alert(response.data.message);
+            fetchMyRequests(token); // Refresh the list
+          } catch(err) {
+            alert('Failed to send request: ' + (err.response?.data?.message || err.message));
+          } finally {
+            setRequestLoading(false);
+          }
+      }, (error) => {
+          alert("Please allow location access to send an emergency request.");
+      });
       
-      const response = await axios.post(`${BACKEND_URL}/api/requests/emergency`, 
-        { bloodGroup: bloodGroup.toUpperCase() },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      alert(response.data.message);
     } catch (error) {
-      alert('Failed to send request: ' + (error.response?.data?.message || error.message));
-    } finally {
-      setRequestLoading(false);
+        console.error("Error setting up request", error);
     }
   };
 
+  const handleClearRequest = async (requestId) => {
+      if(!window.confirm("Are you sure you want to mark this request as completed and clear it?")) return;
+      
+      try {
+        const token = localStorage.getItem('token');
+        await axios.put(`${BACKEND_URL}/api/requests/complete/${requestId}`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        // Remove from UI
+        setActiveRequests(prev => prev.filter(req => req._id !== requestId));
+        alert("Request marked as completed!");
+      } catch (error) {
+        alert("Failed to clear request.");
+      }
+  };
+
   const handleFindDonors = () => {
-    navigate('/find-donors');
+    navigate('/find-donors'); // This connects to the new page we will build next
+  };
+
+  // ==========================================
+  // DONOR ACTIONS
+  // ==========================================
+  const toggleAvailability = async () => {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await axios.put(`${BACKEND_URL}/api/donors/availability`, 
+            { isAvailable: !isAvailableToggle },
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setIsAvailableToggle(!isAvailableToggle);
+        alert(response.data.message);
+        setShowAvailabilityModal(false);
+        fetchUserData(); // Refresh dashboard
+    } catch(err) {
+        alert("Failed to update availability.");
+    }
+  };
+
+  // ==========================================
+  // BLOOD BANK ACTIONS
+  // ==========================================
+  const updateInventory = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        await axios.put(`${BACKEND_URL}/api/donors/inventory`, 
+            { bloodGroup: inventoryBg, units: inventoryUnits },
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        alert("Inventory Updated Successfully");
+        setShowInventoryModal(false);
+        fetchUserData();
+      } catch(err) {
+          alert("Failed to update inventory.");
+      }
   };
 
   if (loading) {
@@ -224,9 +266,10 @@ const Dashboard = () => {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-20 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-20 pb-12 relative">
       <div className="max-w-7xl mx-auto px-4">
         
+        {/* Header */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-6">
           <div className="flex justify-between items-center">
             <div>
@@ -255,7 +298,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        
+        {/* Quick Stats */}
         <div className="grid md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white p-4 rounded-xl shadow-md">
             <div className="flex items-center space-x-3">
@@ -303,16 +346,16 @@ const Dashboard = () => {
                 <Bell className="h-6 w-6 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Active Trackings</p>
-                <p className="text-xl font-bold">{trackingUsers.length}</p>
+                <p className="text-sm text-gray-600">Active Requests</p>
+                <p className="text-xl font-bold">{activeRequests.length}</p>
               </div>
             </div>
           </div>
         </div>
 
-        
         <div className="grid md:grid-cols-3 gap-6">
           
+          {/* Profile & Location Sidebar */}
           <div className="md:col-span-1">
             <div className="bg-white rounded-xl shadow-md p-6">
               <h2 className="text-lg font-semibold mb-4">Profile Details</h2>
@@ -320,24 +363,18 @@ const Dashboard = () => {
               {user.userType.includes('donor') && (
                 <div className="space-y-3">
                   <div>
+                    <p className="text-sm text-gray-600">Availability</p>
+                    <p className={`font-medium ${user.donorDetails?.isAvailable ? 'text-green-600' : 'text-red-600'}`}>
+                        {user.donorDetails?.isAvailable ? 'Available to Donate' : 'Unavailable'}
+                    </p>
+                  </div>
+                  <div>
                     <p className="text-sm text-gray-600">Age</p>
                     <p className="font-medium">{user.donorDetails?.age || 'Not set'} years</p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-600">Weight</p>
                     <p className="font-medium">{user.donorDetails?.weight || 'Not set'} kg</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Hemoglobin</p>
-                    <p className="font-medium">{user.donorDetails?.hemoglobin || 'Not set'} g/dL</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Last Donation</p>
-                    <p className="font-medium">
-                      {user.donorDetails?.lastDonationDate 
-                        ? new Date(user.donorDetails.lastDonationDate).toLocaleDateString()
-                        : 'Never donated'}
-                    </p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-600">Total Donations</p>
@@ -356,12 +393,6 @@ const Dashboard = () => {
                     <p className="text-sm text-gray-600">Established</p>
                     <p className="font-medium">{user.bloodBankDetails?.establishedYear || 'Not set'}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Verification Status</p>
-                    <p className={`font-medium ${user.isVerified ? 'text-green-600' : 'text-yellow-600'}`}>
-                      {user.isVerified ? 'Verified' : 'Pending Verification'}
-                    </p>
-                  </div>
                 </div>
               )}
 
@@ -373,13 +404,7 @@ const Dashboard = () => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-600">Urgency Level</p>
-                    <p className={`font-medium ${
-                      user.patientDetails?.urgencyLevel === 'emergency' 
-                        ? 'text-red-600' 
-                        : user.patientDetails?.urgencyLevel === 'urgent'
-                        ? 'text-orange-600'
-                        : 'text-green-600'
-                    }`}>
+                    <p className="font-medium text-red-600">
                       {user.patientDetails?.urgencyLevel || 'Normal'}
                     </p>
                   </div>
@@ -387,12 +412,13 @@ const Dashboard = () => {
               )}
             </div>
 
-            
+            {/* Location Sharing Box */}
             <div className="bg-white rounded-xl shadow-md p-6 mt-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center">
                 <Navigation className="h-5 w-5 mr-2 text-red-600" />
-                Location Sharing
+                Live Location Sharing
               </h2>
+              <p className="text-xs text-gray-500 mb-4">Share your location so the donor/patient can find you easily when connected.</p>
               
               {!locationSharing ? (
                 <button
@@ -400,21 +426,21 @@ const Dashboard = () => {
                   className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition flex items-center justify-center"
                 >
                   <MapPin className="h-5 w-5 mr-2" />
-                  Start Sharing Location
+                  Turn On Location
                 </button>
               ) : (
                 <div>
                   <div className="bg-green-50 p-3 rounded-lg mb-3">
                     <p className="text-green-700 text-sm flex items-center">
                       <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                      Sharing live location...
+                      Live Location is ON
                     </p>
                   </div>
                   <button
                     onClick={stopLocationSharing}
                     className="w-full bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 transition"
                   >
-                    Stop Sharing
+                    Turn Off Location
                   </button>
                 </div>
               )}
@@ -426,39 +452,43 @@ const Dashboard = () => {
           </div>
 
           
+          {/* Main Actions & Activity */}
           <div className="md:col-span-2">
             
             <div className="bg-white rounded-xl shadow-md p-6 mb-6">
               <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
               
               <div className="grid md:grid-cols-2 gap-4">
+                
+                {/* Donor Buttons */}
                 {user.userType.includes('donor') && (
                   <>
-                    <button className="p-4 border-2 border-red-600 text-red-600 rounded-lg hover:bg-red-50 transition">
+                    <button onClick={() => setShowAvailabilityModal(true)} className="p-4 border-2 border-red-600 text-red-600 rounded-lg hover:bg-red-50 transition cursor-pointer">
                       <Heart className="h-6 w-6 mx-auto mb-2" />
                       <span className="block font-medium">Update Availability</span>
                     </button>
-                    <button className="p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                    <button onClick={() => setShowHistoryModal(true)} className="p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition cursor-pointer">
                       <Calendar className="h-6 w-6 mx-auto mb-2" />
                       <span className="block font-medium">View Donation History</span>
                     </button>
                   </>
                 )}
 
+                {/* Patient Buttons */}
                 {user.userType === 'patient' && (
                   <>
                     <button 
                       onClick={handleFindDonors}
-                      className="p-4 border-2 border-red-600 text-red-600 rounded-lg hover:bg-red-50 transition"
+                      className="p-4 border-2 border-red-600 text-red-600 rounded-lg hover:bg-red-50 transition cursor-pointer"
                     >
                       <Droplet className="h-6 w-6 mx-auto mb-2" />
-                      <span className="block font-medium">Find Donors Now</span>
+                      <span className="block font-medium">Search & Find Donors</span>
                     </button>
                     
                     <button 
                       onClick={handleEmergencyRequest}
                       disabled={requestLoading}
-                      className="p-4 border-2 border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition flex flex-col items-center"
+                      className="p-4 border-2 border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition flex flex-col items-center cursor-pointer"
                     >
                       {requestLoading ? (
                         <Loader className="h-6 w-6 mx-auto mb-2 animate-spin" />
@@ -466,126 +496,195 @@ const Dashboard = () => {
                         <Bell className="h-6 w-6 mx-auto mb-2" />
                       )}
                       <span className="block font-medium">
-                        {requestLoading ? 'Alerting Donors...' : 'Emergency Request'}
+                        {requestLoading ? 'Alerting Donors...' : 'Emergency SOS Request'}
                       </span>
                     </button>
                   </>
                 )}
 
+                {/* Blood Bank Buttons */}
                 {user.userType === 'blood_bank' && (
                   <>
-                    <button className="p-4 border-2 border-red-600 text-red-600 rounded-lg hover:bg-red-50 transition">
+                    <button onClick={() => setShowInventoryModal(true)} className="p-4 border-2 border-red-600 text-red-600 rounded-lg hover:bg-red-50 transition cursor-pointer">
                       <Droplet className="h-6 w-6 mx-auto mb-2" />
                       <span className="block font-medium">Update Inventory</span>
                     </button>
-                    <button className="p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                    <button onClick={() => navigate('/find-donors')} className="p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition cursor-pointer">
                       <User className="h-6 w-6 mx-auto mb-2" />
-                      <span className="block font-medium">Manage Requests</span>
+                      <span className="block font-medium">Find Donors</span>
                     </button>
                   </>
                 )}
               </div>
             </div>
 
-            
+            {/* Active Requests Box (Tracking) */}
             <div className="bg-white rounded-xl shadow-md p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center">
                 <Target className="h-5 w-5 mr-2 text-red-600" />
-                Live Tracking
+                Active Requests & Connections
               </h2>
               
-              {trackingUsers.length > 0 && !selectedTracking && (
-                <div className="space-y-3">
-                  <p className="text-sm text-gray-600">Active connections:</p>
-                  {trackingUsers.map((tracking) => (
-                    <div key={tracking.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium">{tracking.name}</p>
-                        <p className="text-xs text-gray-500 capitalize">{tracking.type}</p>
-                      </div>
-                      <button
-                        onClick={() => trackUserLocation(tracking.userId, tracking.name)}
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700"
-                      >
-                        Track Location
-                      </button>
+              {activeRequests.length > 0 ? (
+                <div className="space-y-4">
+                  {activeRequests.map((req) => (
+                    <div key={req._id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h3 className="font-bold text-gray-800">
+                                    Request for {req.bloodGroup}
+                                </h3>
+                                <p className="text-sm text-gray-500">Status: <span className={req.status === 'fulfilled' ? 'text-green-600 font-semibold' : 'text-orange-500 font-semibold'}>{req.status.toUpperCase()}</span></p>
+                                
+                                {req.acceptedDonorId && (
+                                    <div className="mt-2 bg-green-100 p-2 rounded text-sm">
+                                        <p className="font-semibold text-green-800">✓ Donor Accepted!</p>
+                                        <p>Name: {req.acceptedDonorId.name}</p>
+                                        <p>Phone: {req.acceptedDonorId.phone}</p>
+                                        {req.acceptedDonorId.location?.coordinates && (
+                                            <a 
+                                              href={`https://www.google.com/maps/dir/?api=1&destination=${req.acceptedDonorId.location.coordinates.lat},${req.acceptedDonorId.location.coordinates.lng}`}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="text-blue-600 underline text-xs mt-1 inline-block"
+                                            >
+                                                Track / Get Directions to Donor
+                                            </a>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {user.userType === 'patient' && (
+                                <button 
+                                  onClick={() => handleClearRequest(req._id)}
+                                  className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-800 py-1 px-3 rounded flex items-center"
+                                >
+                                    <CheckCircle className="h-3 w-3 mr-1" /> Mark Complete
+                                </button>
+                            )}
+                        </div>
                     </div>
                   ))}
                 </div>
-              )}
-
-              {selectedTracking && (
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold">Tracking: {selectedTracking.userName}</h3>
-                    <button
-                      onClick={stopTracking}
-                      className="text-gray-500 hover:text-gray-700 text-sm"
-                    >
-                      Stop Tracking
-                    </button>
-                  </div>
-                  
-                  {trackedLocation ? (
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <div className="flex items-center mb-3">
-                        <MapPin className="h-5 w-5 text-red-600 mr-2" />
-                        <span className="font-medium">Current Location</span>
-                      </div>
-                      <p className="text-sm text-gray-700">
-                        Latitude: {trackedLocation.lat?.toFixed(6)}
-                      </p>
-                      <p className="text-sm text-gray-700">
-                        Longitude: {trackedLocation.lng?.toFixed(6)}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-2">
-                        Last updated: {trackedLocation.timestamp 
-                          ? new Date(trackedLocation.timestamp).toLocaleTimeString()
-                          : 'Just now'}
-                      </p>
-                      <button
-                        onClick={() => {
-                          window.open(`https://www.google.com/maps?q=${trackedLocation.lat},${trackedLocation.lng}`, '_blank');
-                        }}
-                        className="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 text-sm"
-                      >
-                        View on Map
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Loader className="h-8 w-8 animate-spin text-red-600 mx-auto mb-2" />
-                      <p className="text-gray-500">Fetching location...</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {trackingUsers.length === 0 && !selectedTracking && (
+              ) : (
                 <div className="text-center py-8">
-                  <MapPin className="h-12 w-12 text-gray-300 mx-auto mb-2" />
-                  <p className="text-gray-500">No active tracking connections</p>
+                  <Heart className="h-12 w-12 text-gray-300 mx-auto mb-2" />
+                  <p className="text-gray-500">No active connections right now.</p>
                   <p className="text-sm text-gray-400 mt-1">
-                    When a donor accepts your request or you accept a request, you'll be able to track each other's location
+                    When you send a request and a donor accepts, their details and live location link will appear here.
                   </p>
                 </div>
               )}
-
-              {trackingLoading && (
-                <div className="flex justify-center py-4">
-                  <Loader className="h-6 w-6 animate-spin text-gray-400" />
-                </div>
-              )}
             </div>
 
-            
-            <div className="bg-white rounded-xl shadow-md p-6 mt-6">
-              <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
-              <p className="text-gray-500 text-center py-8">No recent activity to show</p>
-            </div>
           </div>
         </div>
       </div>
+
+      {/* MODALS */}
+
+      {/* Availability Modal */}
+      {showAvailabilityModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white p-6 rounded-xl shadow-xl w-96 relative">
+                  <button onClick={() => setShowAvailabilityModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black">
+                      <X className="h-5 w-5" />
+                  </button>
+                  <h2 className="text-xl font-bold mb-4">Update Availability</h2>
+                  <p className="text-gray-600 mb-6 text-sm">Let patients know if you are currently able to donate blood.</p>
+                  
+                  <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border mb-6">
+                      <span className="font-semibold">Current Status:</span>
+                      <span className={`font-bold ${isAvailableToggle ? 'text-green-600' : 'text-red-600'}`}>
+                          {isAvailableToggle ? 'Available' : 'Unavailable'}
+                      </span>
+                  </div>
+
+                  <button 
+                    onClick={toggleAvailability}
+                    className={`w-full py-3 rounded-lg font-bold text-white transition ${isAvailableToggle ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                  >
+                      {isAvailableToggle ? 'Mark as Unavailable' : 'Mark as Available'}
+                  </button>
+              </div>
+          </div>
+      )}
+
+      {/* History Modal */}
+      {showHistoryModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-md relative">
+                  <button onClick={() => setShowHistoryModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black">
+                      <X className="h-5 w-5" />
+                  </button>
+                  <h2 className="text-xl font-bold mb-4">Donation History</h2>
+                  
+                  <div className="bg-red-50 p-4 rounded-lg mb-4 text-center">
+                      <p className="text-3xl font-bold text-red-600">{user.donorDetails?.donationCount || 0}</p>
+                      <p className="text-sm text-gray-600">Total Life-Saving Donations</p>
+                  </div>
+
+                  <div className="text-sm text-gray-600 mb-4">
+                      <p><strong>Last Donation Date:</strong> {user.donorDetails?.lastDonationDate ? new Date(user.donorDetails.lastDonationDate).toLocaleDateString() : 'No records yet'}</p>
+                      <p className="mt-2 text-xs italic">Note: You must wait 90 days between donations.</p>
+                  </div>
+
+                  <button onClick={() => setShowHistoryModal(false)} className="w-full bg-gray-800 text-white py-2 rounded-lg mt-4">Close</button>
+              </div>
+          </div>
+      )}
+
+      {/* Inventory Modal (Blood Bank) */}
+      {showInventoryModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white p-6 rounded-xl shadow-xl w-96 relative">
+                  <button onClick={() => setShowInventoryModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black">
+                      <X className="h-5 w-5" />
+                  </button>
+                  <h2 className="text-xl font-bold mb-4">Update Inventory</h2>
+                  
+                  <div className="space-y-4 mb-6">
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Blood Group</label>
+                          <select 
+                            value={inventoryBg} 
+                            onChange={(e) => setInventoryBg(e.target.value)}
+                            className="w-full border rounded p-2"
+                          >
+                              <option value="">Select Group</option>
+                              <option value="A+">A+</option>
+                              <option value="O+">O+</option>
+                              <option value="B+">B+</option>
+                              <option value="AB+">AB+</option>
+                              <option value="A-">A-</option>
+                              <option value="O-">O-</option>
+                              <option value="B-">B-</option>
+                              <option value="AB-">AB-</option>
+                          </select>
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Units Available</label>
+                          <input 
+                            type="number" 
+                            min="0"
+                            value={inventoryUnits}
+                            onChange={(e) => setInventoryUnits(e.target.value)}
+                            className="w-full border rounded p-2"
+                          />
+                      </div>
+                  </div>
+
+                  <button 
+                    onClick={updateInventory}
+                    className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700"
+                  >
+                      Save Inventory
+                  </button>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };

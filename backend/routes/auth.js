@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import { User } from '../models/User.js';
+import mongoose from 'mongoose';
 import axios from 'axios';
 
 const router = express.Router();
@@ -367,7 +368,8 @@ router.post('/update-location', async (req, res) => {
           }
         }
       },
-      { new: true }
+      // FIX: Changed from { new: true } to { returnDocument: 'after' } to remove Mongoose warning
+      { returnDocument: 'after' }
     );
     
     if (!user) {
@@ -396,11 +398,11 @@ router.get('/location/:userId', async (req, res) => {
     const targetUserId = req.params.userId;
     
     // Check if there's an active request connection between users
-    const Request = mongoose.model('Request');
+    const Request = mongoose.model('BloodRequest'); // FIX: Added proper model reference
     const activeConnection = await Request.findOne({
       $or: [
-        { patientId: decoded.userId, acceptedDonorId: targetUserId, status: 'accepted' },
-        { patientId: targetUserId, acceptedDonorId: decoded.userId, status: 'accepted' }
+        { patientId: decoded.userId, acceptedDonorId: targetUserId, status: 'fulfilled' },
+        { patientId: targetUserId, acceptedDonorId: decoded.userId, status: 'fulfilled' }
       ]
     });
     
