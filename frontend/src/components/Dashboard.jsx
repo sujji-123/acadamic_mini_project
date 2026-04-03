@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Droplet, Heart, MapPin, Clock, User, LogOut, Bell, Calendar, Loader,
-  Navigation, ShieldCheck, Eye, Target, RefreshCw, CheckCircle, X
+  Navigation, ShieldCheck, Eye, Target, RefreshCw, CheckCircle, X, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -15,7 +15,7 @@ const Dashboard = () => {
   const [watchId, setWatchId] = useState(null);
   const [locationError, setLocationError] = useState(null);
 
-  // New states for the active requests and UI modals
+  // States for active requests and UI modals
   const [activeRequests, setActiveRequests] = useState([]);
   const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
   const [isAvailableToggle, setIsAvailableToggle] = useState(false);
@@ -24,6 +24,10 @@ const Dashboard = () => {
   const [inventoryBg, setInventoryBg] = useState('');
   const [inventoryUnits, setInventoryUnits] = useState(0);
 
+  // State to control how many requests are visible at once (Pagination UI)
+  const [visibleRequestsCount, setVisibleRequestsCount] = useState(3);
+
+  // FIX: Removed process.env. Vite doesn't support it in the browser!
   const BACKEND_URL = 'http://localhost:5000';
 
   useEffect(() => {
@@ -52,7 +56,7 @@ const Dashboard = () => {
           setIsAvailableToggle(response.data.donorDetails.isAvailable);
       }
       
-      // Fetch active requests so patient can see who accepted
+      // Fetch active requests
       fetchMyRequests(token);
 
     } catch (error) {
@@ -74,10 +78,12 @@ const Dashboard = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.data.success) {
-        setActiveRequests(response.data.requests || []);
+        // Ensure we always set an array, even if requests is undefined
+        setActiveRequests(Array.isArray(response.data.requests) ? response.data.requests : []);
       }
     } catch (error) {
       console.error('Error fetching requests:', error);
+      setActiveRequests([]); // Fallback to empty array on error
     }
   };
 
@@ -99,7 +105,6 @@ const Dashboard = () => {
     setLocationSharing(true);
     setLocationError(null);
 
-    // Get current location immediately
     navigator.geolocation.getCurrentPosition(
         async (position) => {
             const { latitude, longitude } = position.coords;
@@ -165,7 +170,6 @@ const Dashboard = () => {
       
       if (!bloodGroup) return; 
 
-      // Get user's location to pass to the request
       navigator.geolocation.getCurrentPosition(async (position) => {
           setRequestLoading(true);
           const token = localStorage.getItem('token');
@@ -180,7 +184,7 @@ const Dashboard = () => {
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             alert(response.data.message);
-            fetchMyRequests(token); // Refresh the list
+            fetchMyRequests(token); 
           } catch(err) {
             alert('Failed to send request: ' + (err.response?.data?.message || err.message));
           } finally {
@@ -203,8 +207,7 @@ const Dashboard = () => {
         await axios.put(`${BACKEND_URL}/api/requests/complete/${requestId}`, {}, {
             headers: { Authorization: `Bearer ${token}` }
         });
-        // Remove from UI
-        setActiveRequests(prev => prev.filter(req => req._id !== requestId));
+        setActiveRequests(prev => Array.isArray(prev) ? prev.filter(req => req._id !== requestId) : []);
         alert("Request marked as completed!");
       } catch (error) {
         alert("Failed to clear request.");
@@ -212,7 +215,7 @@ const Dashboard = () => {
   };
 
   const handleFindDonors = () => {
-    navigate('/find-donors'); // This connects to the new page we will build next
+    navigate('/find-donors'); 
   };
 
   // ==========================================
@@ -228,7 +231,7 @@ const Dashboard = () => {
         setIsAvailableToggle(!isAvailableToggle);
         alert(response.data.message);
         setShowAvailabilityModal(false);
-        fetchUserData(); // Refresh dashboard
+        fetchUserData();
     } catch(err) {
         alert("Failed to update availability.");
     }
@@ -265,6 +268,13 @@ const Dashboard = () => {
 
   if (!user) return null;
 
+  // SAFETY FIX: Ensure activeRequests is ALWAYS treated as an Array before slicing
+  const safeRequests = Array.isArray(activeRequests) ? activeRequests : [];
+  
+  // Calculate which requests to display based on visibleRequestsCount
+  const visibleRequests = safeRequests.slice(0, visibleRequestsCount);
+  const hasMoreRequests = safeRequests.length > visibleRequestsCount;
+
   return (
     <div className="min-h-screen bg-gray-50 pt-20 pb-12 relative">
       <div className="max-w-7xl mx-auto px-4">
@@ -290,7 +300,7 @@ const Dashboard = () => {
             </div>
             <button
               onClick={handleLogout}
-              className="flex items-center space-x-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200"
+              className="flex items-center space-x-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 cursor-pointer"
             >
               <LogOut size={18} />
               <span>Logout</span>
@@ -347,7 +357,7 @@ const Dashboard = () => {
               </div>
               <div>
                 <p className="text-sm text-gray-600">Active Requests</p>
-                <p className="text-xl font-bold">{activeRequests.length}</p>
+                <p className="text-xl font-bold">{safeRequests.length}</p>
               </div>
             </div>
           </div>
@@ -423,7 +433,7 @@ const Dashboard = () => {
               {!locationSharing ? (
                 <button
                   onClick={startLocationSharing}
-                  className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition flex items-center justify-center"
+                  className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition flex items-center justify-center cursor-pointer"
                 >
                   <MapPin className="h-5 w-5 mr-2" />
                   Turn On Location
@@ -438,7 +448,7 @@ const Dashboard = () => {
                   </div>
                   <button
                     onClick={stopLocationSharing}
-                    className="w-full bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 transition"
+                    className="w-full bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 transition cursor-pointer"
                   >
                     Turn Off Location
                   </button>
@@ -520,35 +530,44 @@ const Dashboard = () => {
 
             {/* Active Requests Box (Tracking) */}
             <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center">
-                <Target className="h-5 w-5 mr-2 text-red-600" />
-                Active Requests & Connections
-              </h2>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-semibold flex items-center">
+                  <Target className="h-5 w-5 mr-2 text-red-600" />
+                  Active Requests & Connections
+                </h2>
+                <span className="bg-red-100 text-red-800 text-xs font-bold px-2.5 py-1 rounded-full">
+                  Total: {safeRequests.length}
+                </span>
+              </div>
               
-              {activeRequests.length > 0 ? (
+              {safeRequests.length > 0 ? (
                 <div className="space-y-4">
-                  {activeRequests.map((req) => (
-                    <div key={req._id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  {/* Map through the VISIBLE requests only */}
+                  {visibleRequests.map((req) => (
+                    <div key={req._id} className="border border-gray-200 rounded-lg p-4 bg-gray-50 hover:shadow-sm transition-shadow">
                         <div className="flex justify-between items-start">
                             <div>
-                                <h3 className="font-bold text-gray-800">
+                                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                    <Droplet className="h-4 w-4 text-red-600" />
                                     Request for {req.bloodGroup}
                                 </h3>
-                                <p className="text-sm text-gray-500">Status: <span className={req.status === 'fulfilled' ? 'text-green-600 font-semibold' : 'text-orange-500 font-semibold'}>{req.status.toUpperCase()}</span></p>
+                                <p className="text-sm text-gray-500 mt-1">Status: <span className={req.status === 'fulfilled' ? 'text-green-600 font-semibold' : 'text-orange-500 font-semibold'}>{req.status.toUpperCase()}</span></p>
                                 
                                 {req.acceptedDonorId && (
-                                    <div className="mt-2 bg-green-100 p-2 rounded text-sm">
-                                        <p className="font-semibold text-green-800">✓ Donor Accepted!</p>
-                                        <p>Name: {req.acceptedDonorId.name}</p>
-                                        <p>Phone: {req.acceptedDonorId.phone}</p>
+                                    <div className="mt-3 bg-green-100 p-3 rounded-md text-sm border border-green-200">
+                                        <p className="font-bold text-green-800 flex items-center mb-1">
+                                            <CheckCircle className="h-4 w-4 mr-1" /> Match Found!
+                                        </p>
+                                        <p className="text-gray-700">Name: <span className="font-semibold">{req.acceptedDonorId.name}</span></p>
+                                        <p className="text-gray-700">Phone: <span className="font-semibold">{req.acceptedDonorId.phone}</span></p>
                                         {req.acceptedDonorId.location?.coordinates && (
                                             <a 
                                               href={`https://www.google.com/maps/dir/?api=1&destination=${req.acceptedDonorId.location.coordinates.lat},${req.acceptedDonorId.location.coordinates.lng}`}
                                               target="_blank"
                                               rel="noreferrer"
-                                              className="text-blue-600 underline text-xs mt-1 inline-block"
+                                              className="text-blue-600 hover:text-blue-800 font-medium text-xs mt-2 inline-flex items-center"
                                             >
-                                                Track / Get Directions to Donor
+                                                <MapPin className="h-3 w-3 mr-1"/> Track / Get Directions to Donor
                                             </a>
                                         )}
                                     </div>
@@ -558,20 +577,40 @@ const Dashboard = () => {
                             {user.userType === 'patient' && (
                                 <button 
                                   onClick={() => handleClearRequest(req._id)}
-                                  className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-800 py-1 px-3 rounded flex items-center"
+                                  className="text-xs bg-white border border-gray-300 hover:bg-gray-100 text-gray-800 py-1.5 px-3 rounded flex items-center cursor-pointer shadow-sm transition"
                                 >
-                                    <CheckCircle className="h-3 w-3 mr-1" /> Mark Complete
+                                    <CheckCircle className="h-3 w-3 mr-1 text-green-600" /> Mark Complete
                                 </button>
                             )}
                         </div>
                     </div>
                   ))}
+
+                  {/* UI Pagination Controls */}
+                  <div className="flex justify-center mt-4 pt-2 border-t border-gray-100">
+                    {hasMoreRequests ? (
+                      <button 
+                        onClick={() => setVisibleRequestsCount(prev => prev + 3)}
+                        className="flex items-center text-sm font-semibold text-red-600 hover:text-red-800 transition cursor-pointer"
+                      >
+                        View More Requests <ChevronDown className="h-4 w-4 ml-1" />
+                      </button>
+                    ) : visibleRequestsCount > 3 ? (
+                      <button 
+                        onClick={() => setVisibleRequestsCount(3)}
+                        className="flex items-center text-sm font-semibold text-gray-500 hover:text-gray-700 transition cursor-pointer"
+                      >
+                        Show Less <ChevronUp className="h-4 w-4 ml-1" />
+                      </button>
+                    ) : null}
+                  </div>
+
                 </div>
               ) : (
-                <div className="text-center py-8">
-                  <Heart className="h-12 w-12 text-gray-300 mx-auto mb-2" />
-                  <p className="text-gray-500">No active connections right now.</p>
-                  <p className="text-sm text-gray-400 mt-1">
+                <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                  <Heart className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">No active connections right now.</p>
+                  <p className="text-sm text-gray-400 mt-1 max-w-sm mx-auto">
                     When you send a request and a donor accepts, their details and live location link will appear here.
                   </p>
                 </div>
@@ -588,7 +627,7 @@ const Dashboard = () => {
       {showAvailabilityModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white p-6 rounded-xl shadow-xl w-96 relative">
-                  <button onClick={() => setShowAvailabilityModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black">
+                  <button onClick={() => setShowAvailabilityModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black cursor-pointer">
                       <X className="h-5 w-5" />
                   </button>
                   <h2 className="text-xl font-bold mb-4">Update Availability</h2>
@@ -603,7 +642,7 @@ const Dashboard = () => {
 
                   <button 
                     onClick={toggleAvailability}
-                    className={`w-full py-3 rounded-lg font-bold text-white transition ${isAvailableToggle ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                    className={`w-full py-3 rounded-lg font-bold text-white transition cursor-pointer ${isAvailableToggle ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
                   >
                       {isAvailableToggle ? 'Mark as Unavailable' : 'Mark as Available'}
                   </button>
@@ -615,22 +654,31 @@ const Dashboard = () => {
       {showHistoryModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-md relative">
-                  <button onClick={() => setShowHistoryModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black">
+                  <button onClick={() => setShowHistoryModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black cursor-pointer">
                       <X className="h-5 w-5" />
                   </button>
                   <h2 className="text-xl font-bold mb-4">Donation History</h2>
                   
-                  <div className="bg-red-50 p-4 rounded-lg mb-4 text-center">
+                  <div className="bg-red-50 p-4 rounded-lg mb-4 text-center border border-red-100">
                       <p className="text-3xl font-bold text-red-600">{user.donorDetails?.donationCount || 0}</p>
-                      <p className="text-sm text-gray-600">Total Life-Saving Donations</p>
+                      <p className="text-sm text-gray-600 font-medium">Total Life-Saving Donations</p>
                   </div>
 
-                  <div className="text-sm text-gray-600 mb-4">
-                      <p><strong>Last Donation Date:</strong> {user.donorDetails?.lastDonationDate ? new Date(user.donorDetails.lastDonationDate).toLocaleDateString() : 'No records yet'}</p>
-                      <p className="mt-2 text-xs italic">Note: You must wait 90 days between donations.</p>
+                  <div className="text-sm text-gray-600 mb-6 bg-gray-50 p-4 rounded-lg border border-gray-100">
+                      <p className="flex justify-between border-b pb-2 mb-2">
+                        <strong className="text-gray-700">Last Donation Date:</strong> 
+                        <span className="font-medium text-gray-900">
+                          {user.donorDetails?.lastDonationDate ? new Date(user.donorDetails.lastDonationDate).toLocaleDateString() : 'No records yet'}
+                        </span>
+                      </p>
+                      <p className="mt-2 text-xs italic text-orange-600 flex items-center">
+                        <AlertCircle className="h-3 w-3 mr-1" /> Note: You must wait 90 days between donations.
+                      </p>
                   </div>
 
-                  <button onClick={() => setShowHistoryModal(false)} className="w-full bg-gray-800 text-white py-2 rounded-lg mt-4">Close</button>
+                  <button onClick={() => setShowHistoryModal(false)} className="w-full bg-gray-800 text-white py-2 rounded-lg mt-2 hover:bg-gray-900 transition cursor-pointer font-medium">
+                    Close History
+                  </button>
               </div>
           </div>
       )}
@@ -639,10 +687,12 @@ const Dashboard = () => {
       {showInventoryModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white p-6 rounded-xl shadow-xl w-96 relative">
-                  <button onClick={() => setShowInventoryModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black">
+                  <button onClick={() => setShowInventoryModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-black cursor-pointer">
                       <X className="h-5 w-5" />
                   </button>
-                  <h2 className="text-xl font-bold mb-4">Update Inventory</h2>
+                  <h2 className="text-xl font-bold mb-4 flex items-center">
+                    <Droplet className="h-5 w-5 mr-2 text-red-600"/> Update Inventory
+                  </h2>
                   
                   <div className="space-y-4 mb-6">
                       <div>
@@ -650,9 +700,9 @@ const Dashboard = () => {
                           <select 
                             value={inventoryBg} 
                             onChange={(e) => setInventoryBg(e.target.value)}
-                            className="w-full border rounded p-2"
+                            className="w-full border-gray-300 rounded-lg p-3 border focus:ring-red-500 focus:border-red-500 outline-none"
                           >
-                              <option value="">Select Group</option>
+                              <option value="">Select Group...</option>
                               <option value="A+">A+</option>
                               <option value="O+">O+</option>
                               <option value="B+">B+</option>
@@ -670,14 +720,15 @@ const Dashboard = () => {
                             min="0"
                             value={inventoryUnits}
                             onChange={(e) => setInventoryUnits(e.target.value)}
-                            className="w-full border rounded p-2"
+                            className="w-full border-gray-300 rounded-lg p-3 border focus:ring-red-500 focus:border-red-500 outline-none"
+                            placeholder="Enter quantity"
                           />
                       </div>
                   </div>
 
                   <button 
                     onClick={updateInventory}
-                    className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700"
+                    className="w-full bg-red-600 text-white py-3 rounded-lg hover:bg-red-700 font-bold transition cursor-pointer"
                   >
                       Save Inventory
                   </button>
